@@ -12,6 +12,7 @@ import { useCampus } from '../context/CampusContext';
 import CampusViewer3D from '../components/3d/CampusViewer3D';
 import ThreejsErrorBoundary from '../components/3d/ThreejsErrorBoundary';
 import { AIInsight, ApprovalRequest, ActivityItem, WorkOrder, Incident } from '../types';
+import { authorizeApprovalAction } from '../utils/security';
 
 /* ─── Tiny helpers ─────────────────────────────────────────────── */
 const SEV_COLORS: Record<string, string> = {
@@ -224,10 +225,12 @@ function ApprovalCard({ approval, onApprove, onReject }: {
   onApprove: () => void;
   onReject: () => void;
 }) {
+  const { user } = useCampus();
   const ub = URGENCY_BADGE[approval.urgency];
   const isApproved = approval.status === 'approved';
   const isRejected = approval.status === 'rejected';
   const isDone = isApproved || isRejected;
+  const authCheck = authorizeApprovalAction(user, approval, 'approve');
 
   return (
     <div className={`p-4 rounded-card border transition-all duration-300 ${isDone ? 'opacity-60 border-[#E7E2DD] bg-[#FAF7F1]' : 'border-[#E7E2DD] bg-white hover:shadow-pastel-sm'}`}>
@@ -244,19 +247,32 @@ function ApprovalCard({ approval, onApprove, onReject }: {
         <span className="font-space font-bold text-[13px] text-[#24283B]">{approval.estimatedCost}</span>
       </div>
       {!isDone && (
-        <div className="flex gap-2">
-          <button
-            onClick={onApprove}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#D5F3E8] text-[#1B6648] font-jakarta font-semibold text-[12px] hover:bg-[#B8ECD8] transition-colors"
-          >
-            <CheckCheck size={13} /> Approve
-          </button>
-          <button
-            onClick={onReject}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#F6F0E5] text-[#74788C] font-jakarta font-semibold text-[12px] hover:bg-[#EFE7D8] transition-colors"
-          >
-            <XCircle size={13} /> Decline
-          </button>
+        <div>
+          <div className="flex gap-2">
+            <button
+              onClick={onApprove}
+              disabled={!authCheck.allowed}
+              title={authCheck.reason || 'Approve'}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl font-jakarta font-semibold text-[12px] transition-colors ${
+                authCheck.allowed
+                  ? 'bg-[#D5F3E8] text-[#1B6648] hover:bg-[#B8ECD8]'
+                  : 'bg-[#F6F0E5] text-[#9CA1B4] cursor-not-allowed opacity-60'
+              }`}
+            >
+              <CheckCheck size={13} /> Approve
+            </button>
+            <button
+              onClick={onReject}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#F6F0E5] text-[#74788C] font-jakarta font-semibold text-[12px] hover:bg-[#EFE7D8] transition-colors"
+            >
+              <XCircle size={13} /> Decline
+            </button>
+          </div>
+          {!authCheck.allowed && (
+            <p className="font-jakarta text-[10px] text-[#BA3D6E] mt-1.5 text-center font-semibold">
+              {authCheck.code === 'SELF_APPROVAL_PROHIBITED' ? 'Self-requisition (cannot self-approve)' : 'Requires executive authority'}
+            </p>
+          )}
         </div>
       )}
     </div>

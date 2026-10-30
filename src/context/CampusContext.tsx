@@ -39,6 +39,15 @@ import {
 } from '../data/demoData';
 import { CAMPUS_BUILDINGS } from '../data/buildingsData';
 import { api } from '../services/api';
+import { 
+  hasPermission, 
+  authorizeApprovalAction, 
+  sanitizeString, 
+  isValidDateFormat, 
+  isValidTimeWindow, 
+  isPositiveSafeInteger, 
+  isNonNegativeNumber 
+} from '../utils/security';
 
 export interface NotificationItem {
   id: string;
@@ -61,8 +70,8 @@ interface CampusContextType {
   aiInsights: AIInsight[];
   recentActivities: ActivityItem[];
   approvals: ApprovalRequest[];
-  approveRequest: (id: string) => void;
-  rejectRequest: (id: string) => void;
+  approveRequest: (id: string) => { success: boolean; message: string };
+  rejectRequest: (id: string, reason?: string) => { success: boolean; message: string };
   buildings: Building[];
   selectedBuildingId: string | null;
   setSelectedBuildingId: (id: string | null) => void;
@@ -300,7 +309,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     showToast(`Work Order #${newOrder.orderNumber} issued`, 'success');
   };
 
-  // Phase 2.4: Stock Operation (atomic, audit-logged, prevents negative stock)
+  // Phase 2.4 / 2.9: Hardened Stock Operation (RBAC, atomic, audit-logged, prevents negative stock)
   const performStockOperation = (params: {
     itemId: string;
     type: StockTransactionType;
@@ -309,19 +318,46 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     referenceType?: StockTransaction['referenceType'];
     referenceId?: string;
   }) => {
+    // 1. RBAC authorization guard
+    if (!hasPermission(user.role, 'manage_inventory')) {
+      showToast(`Unauthorized: Role "${user.role}" does not have inventory operation privileges`, 'error');
+      const secAct: ActivityItem = {
+        id: `sec-${Date.now()}`,
+        actor: user.name,
+        actorRole: user.role,
+        avatar: user.avatar,
+        action: 'blocked unauthorized stock modification attempt',
+        target: `${params.type} (${params.quantity})`,
+        category: 'inventory',
+        timestamp: 'Just now',
+        badgeText: 'SECURITY BLOCKED',
+      };
+      setRecentActivities((prev) => [secAct, ...prev]);
+      return { success: false, message: 'Unauthorized role for inventory management' };
+    }
+
     const item = inventoryItems.find((i) => i.id === params.itemId);
     if (!item) {
       showToast('Item not found in inventory', 'error');
       return { success: false, message: 'Item not found' };
     }
 
-    if (params.quantity <= 0) {
-      showToast('Quantity must be greater than zero', 'error');
-      return { success: false, message: 'Quantity must be greater than zero' };
+    // 2. Numerical safety & integer validation
+    if (params.type === 'adjustment') {
+      if (!Number.isFinite(params.quantity) || !Number.isInteger(params.quantity) || params.quantity < 0) {
+        showToast('Adjustment quantity must be a non-negative whole number', 'error');
+        return { success: false, message: 'Invalid adjustment quantity' };
+      }
+    } else {
+      if (!isPositiveSafeInteger(params.quantity)) {
+        showToast('Quantity must be a positive whole number', 'error');
+        return { success: false, message: 'Quantity must be a positive whole number' };
+      }
     }
 
-    // Prevent negative inventory for stock deductions
-    if ((params.type === 'stock_out' || params.type === 'allocation') && item.currentStock < params.quantity) {
+    // 3. Prevent negative inventory for stock deductions (stock_out, allocation, transfer)
+    const isDeduction = params.type === 'stock_out' || params.type === 'allocation' || (params.type as string) === 'transfer';
+    if (isDeduction && item.currentStock < params.quantity) {
       showToast(`Cannot deduct ${params.quantity} ${item.unit}. Only ${item.currentStock} in stock.`, 'error');
       return { success: false, message: 'Insufficient stock' };
     }
@@ -329,7 +365,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     let newStock = item.currentStock;
     if (params.type === 'stock_in' || params.type === 'return') {
       newStock += params.quantity;
-    } else if (params.type === 'stock_out' || params.type === 'allocation') {
+    } else if (isDeduction) {
       newStock -= params.quantity;
     } else if (params.type === 'adjustment') {
       newStock = params.quantity;
@@ -342,6 +378,8 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     const newStatus: InventoryItem['status'] =
       newStock === 0 ? 'out_of_stock' : newStock <= item.minThreshold ? 'low_stock' : 'in_stock';
+
+    const safeReason = sanitizeString(params.reason || `${params.type.replace('_', ' ')} recorded`, 250);
 
     // Update item atomically
     setInventoryItems((prev) =>
@@ -370,7 +408,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       newStock,
       referenceType: params.referenceType || 'manual_adjustment',
       referenceId: params.referenceId,
-      reason: params.reason || `${params.type.replace('_', ' ')} recorded`,
+      reason: safeReason,
       performedBy: `${user.name} (${user.role})`,
       timestamp: 'Just now',
     };
@@ -557,14 +595,19 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: 'Work order not found' };
     }
 
+    if (wo.status === 'completed') {
+      showToast('Cannot allocate parts to a completed work order', 'error');
+      return { success: false, message: 'Work order is already completed' };
+    }
+
     const item = inventoryItems.find((i) => i.id === itemId);
     if (!item) {
       showToast('Item not found in inventory', 'error');
       return { success: false, message: 'Item not found' };
     }
 
-    if (quantity <= 0) {
-      showToast('Quantity must be greater than zero', 'error');
+    if (!isPositiveSafeInteger(quantity)) {
+      showToast('Allocation quantity must be a positive whole number', 'error');
       return { success: false, message: 'Invalid quantity' };
     }
 
@@ -635,6 +678,11 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const allocation = (wo.allocatedParts || []).find((a) => a.id === allocationId);
     if (!allocation) return { success: false, message: 'Allocation record not found' };
 
+    if (allocation.status !== 'allocated') {
+      showToast(`Part allocation is already ${allocation.status}`, 'error');
+      return { success: false, message: `Part is already ${allocation.status}` };
+    }
+
     performStockOperation({
       itemId: allocation.itemId,
       type: 'return',
@@ -671,6 +719,31 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const approveRequest = (id: string) => {
+    const target = approvals.find((a) => a.id === id);
+    if (!target) {
+      showToast('Requisition request not found', 'error');
+      return { success: false, message: 'Requisition request not found' };
+    }
+
+    // Phase 2.9 Security: RBAC + Self-Approval Guard (Separation of Duties)
+    const authCheck = authorizeApprovalAction(user, target, 'approve');
+    if (!authCheck.allowed) {
+      showToast(authCheck.reason || 'Approval unauthorized', 'error');
+      const secAct: ActivityItem = {
+        id: `sec-${Date.now()}`,
+        actor: user.name,
+        actorRole: user.role,
+        avatar: user.avatar,
+        action: `blocked unauthorized approval attempt (${authCheck.code})`,
+        target: target.title,
+        category: 'approval',
+        timestamp: 'Just now',
+        badgeText: 'SECURITY BLOCKED',
+      };
+      setRecentActivities((prev) => [secAct, ...prev]);
+      return { success: false, message: authCheck.reason || 'Approval unauthorized' };
+    }
+
     setApprovals((prev) =>
       prev.map((item) => (item.id === id ? { ...item, status: 'approved' as const } : item))
     );
@@ -693,25 +766,48 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           : b
       )
     );
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: 'authorized requisition for',
+      target: target.title,
+      category: 'approval',
+      timestamp: 'Just now',
+      badgeText: 'Approved',
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+    showToast(`Request "${target.title.slice(0, 30)}..." approved`, 'success');
+    return { success: true, message: 'Request approved successfully' };
+  };
+
+  const rejectRequest = (id: string, reason?: string) => {
     const target = approvals.find((a) => a.id === id);
-    if (target) {
-      const newAct: ActivityItem = {
-        id: `act-${Date.now()}`,
+    if (!target) {
+      showToast('Requisition request not found', 'error');
+      return { success: false, message: 'Requisition request not found' };
+    }
+
+    const authCheck = authorizeApprovalAction(user, target, 'reject');
+    if (!authCheck.allowed) {
+      showToast(authCheck.reason || 'Decline unauthorized', 'error');
+      const secAct: ActivityItem = {
+        id: `sec-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
         avatar: user.avatar,
-        action: 'approved requisition for',
+        action: `blocked unauthorized decline attempt (${authCheck.code})`,
         target: target.title,
         category: 'approval',
         timestamp: 'Just now',
-        badgeText: 'Approved',
+        badgeText: 'SECURITY BLOCKED',
       };
-      setRecentActivities((prev) => [newAct, ...prev]);
-      showToast(`Request "${target.title.slice(0, 30)}..." approved`, 'success');
+      setRecentActivities((prev) => [secAct, ...prev]);
+      return { success: false, message: authCheck.reason || 'Decline unauthorized' };
     }
-  };
 
-  const rejectRequest = (id: string) => {
     setApprovals((prev) =>
       prev.map((item) => (item.id === id ? { ...item, status: 'rejected' as const } : item))
     );
@@ -724,14 +820,13 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setBookings((prev) =>
       prev.map((b) =>
         b.approvalRequestId === id
-          ? { ...b, status: 'rejected' as const, rejectionReason: 'Declined by facility coordinator' }
+          ? { ...b, status: 'rejected' as const, rejectionReason: reason || 'Declined by authorized coordinator' }
           : b
       )
     );
-    const target = approvals.find((a) => a.id === id);
-    if (target) {
-      showToast(`Request "${target.title.slice(0, 30)}..." declined`, 'info');
-    }
+
+    showToast(`Request "${target.title.slice(0, 30)}..." declined`, 'info');
+    return { success: true, message: 'Request declined' };
   };
 
   // ── Phase 2.5: Room Booking & Emergency Operations ─────────────────────────
@@ -747,14 +842,30 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const createBooking = (bookingData: Omit<RoomBooking, 'id' | 'bookingNumber' | 'createdAt'>) => {
-    if (bookingData.startTime >= bookingData.endTime) {
-      showToast('End time must be after start time', 'error');
-      return { success: false, message: 'End time must be after start time' };
+    const sanitizedPurpose = sanitizeString(bookingData.purpose, 250);
+    const sanitizedBookedBy = sanitizeString(bookingData.bookedBy, 120);
+    const sanitizedDept = sanitizeString(bookingData.department, 120);
+    const sanitizedNotes = bookingData.notes ? sanitizeString(bookingData.notes, 500) : undefined;
+
+    if (!sanitizedPurpose) {
+      showToast('Booking purpose is required and cannot be blank', 'error');
+      return { success: false, message: 'Booking purpose is required' };
     }
 
-    if (bookingData.expectedAttendance <= 0) {
-      showToast('Expected attendance must be at least 1', 'error');
-      return { success: false, message: 'Expected attendance must be at least 1' };
+    if (!isValidDateFormat(bookingData.date)) {
+      showToast('Date must be in valid YYYY-MM-DD format', 'error');
+      return { success: false, message: 'Invalid booking date format' };
+    }
+
+    const timeWindow = isValidTimeWindow(bookingData.startTime, bookingData.endTime);
+    if (!timeWindow.valid) {
+      showToast(timeWindow.error || 'Invalid time window', 'error');
+      return { success: false, message: timeWindow.error || 'Invalid time window' };
+    }
+
+    if (!isPositiveSafeInteger(bookingData.expectedAttendance)) {
+      showToast('Expected attendance must be a positive whole number', 'error');
+      return { success: false, message: 'Expected attendance must be a positive whole number' };
     }
 
     const room = rooms.find((r) => r.id === bookingData.roomId);
@@ -803,6 +914,10 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     const newBooking: RoomBooking = {
       ...bookingData,
+      purpose: sanitizedPurpose,
+      bookedBy: sanitizedBookedBy || user.name,
+      department: sanitizedDept || user.department,
+      notes: sanitizedNotes,
       id: `bk-${Date.now()}`,
       bookingNumber: `BK-2026-${Math.floor(100 + Math.random() * 899)}`,
       status: needsApproval ? 'pending' : 'approved',
@@ -975,11 +1090,39 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     relatedIncidentTicket?: string;
     relatedWorkOrderNumber?: string;
   }) => {
+    // 1. RBAC check
+    if (!hasPermission(user.role, 'report_disruption')) {
+      showToast(`Unauthorized: Role "${user.role}" does not have authority to report emergency disruptions`, 'error');
+      const secAct: ActivityItem = {
+        id: `sec-${Date.now()}`,
+        actor: user.name,
+        actorRole: user.role,
+        avatar: user.avatar,
+        action: 'blocked unauthorized emergency disruption report attempt',
+        target: `Room: ${data.roomId}`,
+        category: 'incident',
+        timestamp: 'Just now',
+        badgeText: 'SECURITY BLOCKED',
+      };
+      setRecentActivities((prev) => [secAct, ...prev]);
+      return { success: false, message: 'Unauthorized role for reporting disruptions' };
+    }
+
     const room = rooms.find((r) => r.id === data.roomId);
     if (!room) {
       showToast('Room not found', 'error');
       return { success: false, message: 'Room not found' };
     }
+
+    const sanitizedIssue = sanitizeString(data.issue, 300);
+    if (!sanitizedIssue) {
+      showToast('Disruption issue description cannot be blank', 'error');
+      return { success: false, message: 'Issue description is required' };
+    }
+
+    const sanitizedEta = sanitizeString(data.resolutionEta, 80);
+    const sanitizedIncidentTicket = data.relatedIncidentTicket ? sanitizeString(data.relatedIncidentTicket, 50) : undefined;
+    const sanitizedWorkOrderNumber = data.relatedWorkOrderNumber ? sanitizeString(data.relatedWorkOrderNumber, 50) : undefined;
 
     const disruptionId = `rd-${Date.now()}`;
     const disruptionNumber = `DIS-2026-${Math.floor(10 + Math.random() * 89)}`;
@@ -995,7 +1138,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       roomCode: room.roomNumber,
       buildingId: room.buildingId,
       buildingName: `${room.buildingName} (${room.floor})`,
-      issue: data.issue,
+      issue: sanitizedIssue,
       reasonCategory: data.reasonCategory,
       severity: data.severity,
       affectedSchedule:
@@ -1003,11 +1146,11 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           ? `${affected[0].purpose} (${affected[0].startTime}) + ${affected.length - 1} more`
           : 'No scheduled sessions currently affected',
       status: 'confirmed',
-      resolutionEta: data.resolutionEta,
+      resolutionEta: sanitizedEta || 'Investigating',
       reportedBy: `${user.name} (${user.role})`,
       reportedByRole: user.role,
-      relatedIncidentTicket: data.relatedIncidentTicket,
-      relatedWorkOrderNumber: data.relatedWorkOrderNumber,
+      relatedIncidentTicket: sanitizedIncidentTicket,
+      relatedWorkOrderNumber: sanitizedWorkOrderNumber,
       affectedBookingIds: affected.map((b) => b.id),
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
     };
@@ -1034,7 +1177,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const newNotif: NotificationItem = {
       id: `notif-${Date.now()}`,
       title: `Emergency Disruption: ${room.name}`,
-      message: `${data.issue}. Room closed. ${affected.length} booking(s) flagged for reallocation.`,
+      message: `${sanitizedIssue}. Room closed. ${affected.length} booking(s) flagged for reallocation.`,
       timeAgo: 'Just now',
       isRead: false,
       type: data.severity === 'critical' ? 'critical' : 'alert',
@@ -1047,6 +1190,24 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const resolveRoomDisruption = (disruptionId: string) => {
+    // 1. RBAC check
+    if (!hasPermission(user.role, 'resolve_disruption')) {
+      showToast(`Unauthorized: Role "${user.role}" does not have authority to resolve disruptions`, 'error');
+      const secAct: ActivityItem = {
+        id: `sec-${Date.now()}`,
+        actor: user.name,
+        actorRole: user.role,
+        avatar: user.avatar,
+        action: 'blocked unauthorized disruption resolution attempt',
+        target: `Disruption ID: ${disruptionId}`,
+        category: 'incident',
+        timestamp: 'Just now',
+        badgeText: 'SECURITY BLOCKED',
+      };
+      setRecentActivities((prev) => [secAct, ...prev]);
+      return { success: false, message: 'Unauthorized role for resolving disruptions' };
+    }
+
     const disruption = roomDisruptions.find((d) => d.id === disruptionId);
     if (!disruption) {
       showToast('Disruption not found', 'error');
@@ -1099,6 +1260,24 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const reallocateBooking = (bookingId: string, targetRoomId: string, reason: string) => {
+    // 1. RBAC check
+    if (!hasPermission(user.role, 'reallocate_booking')) {
+      showToast(`Unauthorized: Role "${user.role}" does not have authority to reallocate bookings`, 'error');
+      const secAct: ActivityItem = {
+        id: `sec-${Date.now()}`,
+        actor: user.name,
+        actorRole: user.role,
+        avatar: user.avatar,
+        action: 'blocked unauthorized room reallocation attempt',
+        target: `Booking ID: ${bookingId}`,
+        category: 'system',
+        timestamp: 'Just now',
+        badgeText: 'SECURITY BLOCKED',
+      };
+      setRecentActivities((prev) => [secAct, ...prev]);
+      return { success: false, message: 'Unauthorized role for room reallocation' };
+    }
+
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) {
       showToast('Booking not found', 'error');
@@ -1109,6 +1288,16 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (!targetRoom) {
       showToast('Target room not found', 'error');
       return { success: false, message: 'Target room not found' };
+    }
+
+    // 2. CRITICAL SAFETY & LOGIC CHECK: Target room cannot be disrupted or undergoing maintenance
+    if (targetRoom.status === 'disrupted') {
+      showToast(`Security block: Target room ${targetRoom.name} is currently disrupted!`, 'error');
+      return { success: false, message: `Target room ${targetRoom.name} is disrupted and unavailable for reallocation` };
+    }
+    if (targetRoom.status === 'maintenance') {
+      showToast(`Security block: Target room ${targetRoom.name} is undergoing maintenance!`, 'error');
+      return { success: false, message: `Target room ${targetRoom.name} is under maintenance` };
     }
 
     if (targetRoom.capacity < booking.expectedAttendance) {
@@ -1130,6 +1319,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: 'Target room is not available during that time window' };
     }
 
+    const safeReason = sanitizeString(reason || 'Emergency reallocation', 250);
     const prevRoomName = booking.roomName;
 
     setBookings((prev) =>
@@ -1145,7 +1335,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               status: 'reallocated' as const,
               reallocatedFromRoomId: booking.roomId,
               reallocatedFromRoomName: prevRoomName,
-              reallocationReason: reason,
+              reallocationReason: safeReason,
               reallocationTimestamp: 'Just now',
             }
           : b

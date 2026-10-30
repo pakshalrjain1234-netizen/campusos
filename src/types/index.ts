@@ -197,6 +197,10 @@ export interface RoomBooking {
   reallocatedFromRoomName?: string;
   reallocationReason?: string;
   reallocationTimestamp?: string;
+  approvedBy?: string;
+  approvalTimestamp?: string;
+  rejectionReason?: string;
+  notes?: string;
   createdAt: string;
 }
 

@@ -21,10 +21,12 @@ import ReportDisruptionModal from './components/modals/ReportDisruptionModal';
 import ReallocateBookingModal from './components/modals/ReallocateBookingModal';
 import ToastNotification from './components/ui/ToastNotification';
 import NotificationDrawer from './components/ui/NotificationDrawer';
+import GlobalErrorBoundary from './components/ui/GlobalErrorBoundary';
 
 export default function App() {
   return (
-    <CampusProvider>
+    <GlobalErrorBoundary>
+      <CampusProvider>
       {/* Global overlays – always mounted */}
       <CommandPalette />
       <ReportIncidentModal />
@@ -52,6 +54,7 @@ export default function App() {
         </Route>
       </Routes>
     </CampusProvider>
+  </GlobalErrorBoundary>
   );
 }
 

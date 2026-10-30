@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, XCircle, CheckCheck, Clock } from 'lucide-react';
 import { useCampus } from '../context/CampusContext';
+import { authorizeApprovalAction } from '../utils/security';
 
 const URGENCY_BADGE: Record<string, { bg: string; text: string; label: string }> = {
   high: { bg: '#FDF0F6', text: '#BA3D6E', label: 'High Priority' },
@@ -10,7 +11,7 @@ const URGENCY_BADGE: Record<string, { bg: string; text: string; label: string }>
 };
 
 export default function ApprovalsPage() {
-  const { approvals, approveRequest, rejectRequest } = useCampus();
+  const { user, approvals, approveRequest, rejectRequest } = useCampus();
   const pending = approvals.filter(a => a.status === 'pending');
   const done = approvals.filter(a => a.status !== 'pending');
 
@@ -67,18 +68,41 @@ export default function ApprovalsPage() {
                       </div>
                     </div>
                     <div className="flex flex-col gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => approveRequest(appr.id)}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#D5F3E8] text-[#1B6648] font-jakarta font-semibold text-[12px] hover:bg-[#B8ECD8] transition-colors"
-                      >
-                        <CheckCheck size={13} /> Approve
-                      </button>
-                      <button
-                        onClick={() => rejectRequest(appr.id)}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F6F0E5] text-[#74788C] font-jakarta font-semibold text-[12px] hover:bg-[#E7E2DD] transition-colors"
-                      >
-                        <XCircle size={13} /> Decline
-                      </button>
+                      {(() => {
+                        const authCheck = authorizeApprovalAction(user, appr, 'approve');
+                        return (
+                          <>
+                            <button
+                              onClick={() => approveRequest(appr.id)}
+                              disabled={!authCheck.allowed}
+                              title={authCheck.reason || 'Approve this requisition'}
+                              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-jakarta font-semibold text-[12px] transition-colors ${
+                                authCheck.allowed
+                                  ? 'bg-[#D5F3E8] text-[#1B6648] hover:bg-[#B8ECD8]'
+                                  : 'bg-[#F6F0E5] text-[#9CA1B4] cursor-not-allowed opacity-60'
+                              }`}
+                            >
+                              <CheckCheck size={13} /> Approve
+                            </button>
+                            <button
+                              onClick={() => rejectRequest(appr.id)}
+                              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F6F0E5] text-[#74788C] font-jakarta font-semibold text-[12px] hover:bg-[#E7E2DD] transition-colors"
+                            >
+                              <XCircle size={13} /> Decline
+                            </button>
+                            {!authCheck.allowed && authCheck.code === 'SELF_APPROVAL_PROHIBITED' && (
+                              <span className="text-[10px] text-[#BA3D6E] font-jakarta font-bold text-center">
+                                Self-requisition
+                              </span>
+                            )}
+                            {!authCheck.allowed && authCheck.code === 'UNAUTHORIZED_ROLE' && (
+                              <span className="text-[10px] text-[#74788C] font-jakarta text-center">
+                                Requires Admin
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
