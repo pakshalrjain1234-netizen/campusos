@@ -15,7 +15,12 @@ import {
   ProcurementRequest,
   ProcurementUrgency,
   ProcurementStatus,
-  WorkOrderPartAllocation
+  WorkOrderPartAllocation,
+  Room,
+  RoomBooking,
+  RoomRecommendation,
+  DisruptionCategory,
+  DisruptionSeverity
 } from '../types';
 import { 
   DEMO_INCIDENTS, 
@@ -28,9 +33,12 @@ import {
   CURRENT_USER,
   DEMO_INVENTORY_ITEMS,
   DEMO_STOCK_TRANSACTIONS,
-  DEMO_PROCUREMENT_REQUESTS
+  DEMO_PROCUREMENT_REQUESTS,
+  DEMO_ROOMS,
+  DEMO_ROOM_BOOKINGS
 } from '../data/demoData';
 import { CAMPUS_BUILDINGS } from '../data/buildingsData';
+import { api } from '../services/api';
 
 export interface NotificationItem {
   id: string;
@@ -117,6 +125,48 @@ interface CampusContextType {
     allocationId: string,
     reason?: string
   ) => { success: boolean; message: string };
+
+  // Phase 2.5: Room Booking & Emergency Management
+  rooms: Room[];
+  bookings: RoomBooking[];
+  isCreateBookingOpen: boolean;
+  setIsCreateBookingOpen: (open: boolean) => void;
+  isReportDisruptionOpen: boolean;
+  setIsReportDisruptionOpen: (open: boolean) => void;
+  isReallocateModalOpen: boolean;
+  setIsReallocateModalOpen: (open: boolean) => void;
+  selectedBookingForReallocation: RoomBooking | null;
+  setSelectedBookingForReallocation: (booking: RoomBooking | null) => void;
+
+  createBooking: (
+    booking: Omit<RoomBooking, 'id' | 'bookingNumber' | 'createdAt'>
+  ) => { success: boolean; message: string; booking?: RoomBooking };
+  cancelBooking: (bookingId: string, reason?: string) => { success: boolean; message: string };
+  approveBooking: (bookingId: string) => void;
+  rejectBooking: (bookingId: string, reason?: string) => void;
+  checkBookingConflict: (
+    roomId: string,
+    date: string,
+    startTime: string,
+    endTime: string,
+    excludeBookingId?: string
+  ) => { hasConflict: boolean; conflictingBooking?: RoomBooking };
+  reportRoomDisruption: (data: {
+    roomId: string;
+    issue: string;
+    reasonCategory: DisruptionCategory;
+    severity: DisruptionSeverity;
+    resolutionEta: string;
+    relatedIncidentTicket?: string;
+    relatedWorkOrderNumber?: string;
+  }) => { success: boolean; message: string; disruption?: RoomDisruption };
+  resolveRoomDisruption: (disruptionId: string) => { success: boolean; message: string };
+  recommendAlternativeRooms: (booking: RoomBooking) => RoomRecommendation[];
+  reallocateBooking: (
+    bookingId: string,
+    targetRoomId: string,
+    reason: string
+  ) => { success: boolean; message: string };
 }
 
 const INITIAL_NOTIFICATIONS: NotificationItem[] = [
@@ -161,7 +211,9 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [incidents, setIncidents] = useState<Incident[]>(DEMO_INCIDENTS);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>(DEMO_WORK_ORDERS);
   const [stockAlerts] = useState<StockAlert[]>(DEMO_STOCK_ALERTS);
-  const [roomDisruptions] = useState<RoomDisruption[]>(DEMO_ROOM_DISRUPTIONS);
+  const [roomDisruptions, setRoomDisruptions] = useState<RoomDisruption[]>(DEMO_ROOM_DISRUPTIONS);
+  const [rooms, setRooms] = useState<Room[]>(DEMO_ROOMS);
+  const [bookings, setBookings] = useState<RoomBooking[]>(DEMO_ROOM_BOOKINGS);
   const [aiInsights] = useState<AIInsight[]>(DEMO_AI_INSIGHTS);
   const [recentActivities, setRecentActivities] = useState<ActivityItem[]>(DEMO_RECENT_ACTIVITIES);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>(DEMO_PENDING_APPROVALS);
@@ -177,6 +229,10 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isReportIncidentOpen, setIsReportIncidentOpen] = useState(false);
   const [isCreateWorkOrderOpen, setIsCreateWorkOrderOpen] = useState(false);
+  const [isCreateBookingOpen, setIsCreateBookingOpen] = useState(false);
+  const [isReportDisruptionOpen, setIsReportDisruptionOpen] = useState(false);
+  const [isReallocateModalOpen, setIsReallocateModalOpen] = useState(false);
+  const [selectedBookingForReallocation, setSelectedBookingForReallocation] = useState<RoomBooking | null>(null);
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -624,6 +680,19 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         r.id === id ? { ...r, status: 'approved' as const, approvedBy: `${user.name} (${user.role})` } : r
       )
     );
+    // Also sync with room bookings
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.approvalRequestId === id
+          ? {
+              ...b,
+              status: 'approved' as const,
+              approvedBy: `${user.name} (${user.role})`,
+              approvalTimestamp: 'Just now',
+            }
+          : b
+      )
+    );
     const target = approvals.find((a) => a.id === id);
     if (target) {
       const newAct: ActivityItem = {
@@ -651,10 +720,478 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         r.id === id ? { ...r, status: 'rejected' as const } : r
       )
     );
+    // Also sync with room bookings
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.approvalRequestId === id
+          ? { ...b, status: 'rejected' as const, rejectionReason: 'Declined by facility coordinator' }
+          : b
+      )
+    );
     const target = approvals.find((a) => a.id === id);
     if (target) {
       showToast(`Request "${target.title.slice(0, 30)}..." declined`, 'info');
     }
+  };
+
+  // ── Phase 2.5: Room Booking & Emergency Operations ─────────────────────────
+
+  const checkBookingConflict = (
+    roomId: string,
+    date: string,
+    startTime: string,
+    endTime: string,
+    excludeBookingId?: string
+  ) => {
+    return api.checkBookingConflict(roomId, date, startTime, endTime, bookings, excludeBookingId);
+  };
+
+  const createBooking = (bookingData: Omit<RoomBooking, 'id' | 'bookingNumber' | 'createdAt'>) => {
+    if (bookingData.startTime >= bookingData.endTime) {
+      showToast('End time must be after start time', 'error');
+      return { success: false, message: 'End time must be after start time' };
+    }
+
+    if (bookingData.expectedAttendance <= 0) {
+      showToast('Expected attendance must be at least 1', 'error');
+      return { success: false, message: 'Expected attendance must be at least 1' };
+    }
+
+    const room = rooms.find((r) => r.id === bookingData.roomId);
+    if (!room) {
+      showToast('Selected room not found', 'error');
+      return { success: false, message: 'Room not found' };
+    }
+
+    if (bookingData.expectedAttendance > room.capacity) {
+      showToast(`Attendance (${bookingData.expectedAttendance}) exceeds room capacity (${room.capacity})`, 'error');
+      return { success: false, message: `Room capacity exceeded: maximum ${room.capacity} seats` };
+    }
+
+    if (room.status === 'disrupted') {
+      showToast(`Cannot book: ${room.name} is currently disrupted`, 'error');
+      return { success: false, message: `${room.name} is currently disrupted and unavailable` };
+    }
+    if (room.status === 'maintenance') {
+      showToast(`Cannot book: ${room.name} is currently undergoing maintenance`, 'error');
+      return { success: false, message: `${room.name} is under maintenance` };
+    }
+
+    const conflictResult = api.checkBookingConflict(
+      bookingData.roomId,
+      bookingData.date,
+      bookingData.startTime,
+      bookingData.endTime,
+      bookings
+    );
+
+    if (conflictResult.hasConflict && conflictResult.conflictingBooking) {
+      const conf = conflictResult.conflictingBooking;
+      showToast(`Conflict: Overlaps with ${conf.bookingNumber} (${conf.startTime} - ${conf.endTime})`, 'error');
+      return {
+        success: false,
+        message: `Conflict detected: Room is already reserved for "${conf.purpose}" (${conf.startTime} - ${conf.endTime})`,
+      };
+    }
+
+    // Role-based or facility size requirement for approvals
+    const needsApproval =
+      room.capacity >= 80 ||
+      room.roomType === 'auditorium' ||
+      user.role === 'Student Affairs Liaison';
+    const approvalId = needsApproval ? `appr-bk-${Date.now()}` : undefined;
+
+    const newBooking: RoomBooking = {
+      ...bookingData,
+      id: `bk-${Date.now()}`,
+      bookingNumber: `BK-2026-${Math.floor(100 + Math.random() * 899)}`,
+      status: needsApproval ? 'pending' : 'approved',
+      requiresApproval: needsApproval,
+      approvalRequestId: approvalId,
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+
+    setBookings((prev) => [newBooking, ...prev]);
+
+    if (needsApproval && approvalId) {
+      const newApproval: ApprovalRequest = {
+        id: approvalId,
+        title: `Room Reservation: ${room.name} (${newBooking.bookingNumber})`,
+        category: 'Room Reservation',
+        requesterName: bookingData.bookedBy,
+        requesterRole: bookingData.bookedByRole,
+        department: bookingData.department,
+        estimatedCost: 'N/A (Facility)',
+        urgency: 'medium',
+        status: 'pending',
+        submittedAt: 'Just now',
+        reason: `${bookingData.purpose} | ${bookingData.date} (${bookingData.startTime} - ${bookingData.endTime}) | ${bookingData.expectedAttendance} attendees`,
+      };
+      setApprovals((prev) => [newApproval, ...prev]);
+    }
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: needsApproval ? 'submitted room booking request for' : 'confirmed booking for',
+      target: `${newBooking.bookingNumber}: ${room.name}`,
+      category: 'system',
+      timestamp: 'Just now',
+      badgeText: needsApproval ? 'PENDING' : 'BOOKED',
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+
+    const newNotif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: needsApproval ? 'Booking Request Submitted' : 'Room Booking Confirmed',
+      message: `${newBooking.bookingNumber} reserved for ${room.name} on ${newBooking.date} (${newBooking.startTime} - ${newBooking.endTime}).`,
+      timeAgo: 'Just now',
+      isRead: false,
+      type: needsApproval ? 'info' : 'success',
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    showToast(
+      needsApproval
+        ? `Booking #${newBooking.bookingNumber} submitted for facility approval`
+        : `Room #${newBooking.bookingNumber} reserved successfully!`,
+      'success'
+    );
+
+    return { success: true, message: 'Booking confirmed', booking: newBooking };
+  };
+
+  const cancelBooking = (bookingId: string, reason?: string) => {
+    const booking = bookings.find((b) => b.id === bookingId);
+    if (!booking) {
+      showToast('Booking not found', 'error');
+      return { success: false, message: 'Booking not found' };
+    }
+
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === bookingId
+          ? {
+              ...b,
+              status: 'cancelled' as const,
+              reallocationReason: reason || 'Cancelled by user',
+            }
+          : b
+      )
+    );
+
+    if (booking.approvalRequestId) {
+      setApprovals((prev) =>
+        prev.map((a) => (a.id === booking.approvalRequestId ? { ...a, status: 'rejected' as const } : a))
+      );
+    }
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: 'cancelled room reservation',
+      target: `${booking.bookingNumber}: ${booking.roomName}`,
+      category: 'system',
+      timestamp: 'Just now',
+      badgeText: 'CANCELLED',
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+
+    const newNotif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: 'Booking Cancelled',
+      message: `Reservation ${booking.bookingNumber} for ${booking.roomName} has been cancelled.`,
+      timeAgo: 'Just now',
+      isRead: false,
+      type: 'alert',
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    showToast(`Booking ${booking.bookingNumber} cancelled`, 'info');
+    return { success: true, message: 'Booking cancelled' };
+  };
+
+  const approveBooking = (bookingId: string) => {
+    const booking = bookings.find((b) => b.id === bookingId);
+    if (!booking) return;
+
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === bookingId
+          ? {
+              ...b,
+              status: 'approved' as const,
+              approvedBy: `${user.name} (${user.role})`,
+              approvalTimestamp: 'Just now',
+            }
+          : b
+      )
+    );
+
+    if (booking.approvalRequestId) {
+      setApprovals((prev) =>
+        prev.map((a) => (a.id === booking.approvalRequestId ? { ...a, status: 'approved' as const } : a))
+      );
+    }
+
+    showToast(`Booking ${booking.bookingNumber} approved`, 'success');
+  };
+
+  const rejectBooking = (bookingId: string, reason?: string) => {
+    const booking = bookings.find((b) => b.id === bookingId);
+    if (!booking) return;
+
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === bookingId
+          ? {
+              ...b,
+              status: 'rejected' as const,
+              reallocationReason: reason || 'Reservation request declined by facility coordinator',
+            }
+          : b
+      )
+    );
+
+    if (booking.approvalRequestId) {
+      setApprovals((prev) =>
+        prev.map((a) => (a.id === booking.approvalRequestId ? { ...a, status: 'rejected' as const } : a))
+      );
+    }
+
+    showToast(`Booking ${booking.bookingNumber} declined`, 'info');
+  };
+
+  const reportRoomDisruption = (data: {
+    roomId: string;
+    issue: string;
+    reasonCategory: DisruptionCategory;
+    severity: DisruptionSeverity;
+    resolutionEta: string;
+    relatedIncidentTicket?: string;
+    relatedWorkOrderNumber?: string;
+  }) => {
+    const room = rooms.find((r) => r.id === data.roomId);
+    if (!room) {
+      showToast('Room not found', 'error');
+      return { success: false, message: 'Room not found' };
+    }
+
+    const disruptionId = `rd-${Date.now()}`;
+    const disruptionNumber = `DIS-2026-${Math.floor(10 + Math.random() * 89)}`;
+
+    const affected = bookings.filter(
+      (b) => b.roomId === room.id && b.status !== 'cancelled' && b.status !== 'rejected'
+    );
+
+    const newDisruption: RoomDisruption = {
+      id: disruptionId,
+      disruptionNumber,
+      roomId: room.id,
+      roomCode: room.roomNumber,
+      buildingId: room.buildingId,
+      buildingName: `${room.buildingName} (${room.floor})`,
+      issue: data.issue,
+      reasonCategory: data.reasonCategory,
+      severity: data.severity,
+      affectedSchedule:
+        affected.length > 0
+          ? `${affected[0].purpose} (${affected[0].startTime}) + ${affected.length - 1} more`
+          : 'No scheduled sessions currently affected',
+      status: 'confirmed',
+      resolutionEta: data.resolutionEta,
+      reportedBy: `${user.name} (${user.role})`,
+      reportedByRole: user.role,
+      relatedIncidentTicket: data.relatedIncidentTicket,
+      relatedWorkOrderNumber: data.relatedWorkOrderNumber,
+      affectedBookingIds: affected.map((b) => b.id),
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+
+    setRooms((prev) =>
+      prev.map((r) => (r.id === room.id ? { ...r, status: 'disrupted' as const, activeDisruptionId: disruptionId } : r))
+    );
+
+    setRoomDisruptions((prev) => [newDisruption, ...prev]);
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: 'reported emergency room disruption for',
+      target: `${room.name} (${disruptionNumber})`,
+      category: 'incident',
+      timestamp: 'Just now',
+      badgeText: data.severity.toUpperCase(),
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+
+    const newNotif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: `Emergency Disruption: ${room.name}`,
+      message: `${data.issue}. Room closed. ${affected.length} booking(s) flagged for reallocation.`,
+      timeAgo: 'Just now',
+      isRead: false,
+      type: data.severity === 'critical' ? 'critical' : 'alert',
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    showToast(`Emergency disruption logged: ${room.name} marked unavailable`, 'error');
+
+    return { success: true, message: 'Disruption logged successfully', disruption: newDisruption };
+  };
+
+  const resolveRoomDisruption = (disruptionId: string) => {
+    const disruption = roomDisruptions.find((d) => d.id === disruptionId);
+    if (!disruption) {
+      showToast('Disruption not found', 'error');
+      return { success: false, message: 'Disruption not found' };
+    }
+
+    setRoomDisruptions((prev) =>
+      prev.map((d) => (d.id === disruptionId ? { ...d, status: 'resolved' as const } : d))
+    );
+
+    if (disruption.roomId) {
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === disruption.roomId
+            ? { ...r, status: 'available' as const, activeDisruptionId: undefined }
+            : r
+        )
+      );
+    }
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: 'resolved room disruption for',
+      target: `${disruption.roomCode} (${disruption.disruptionNumber || disruptionId})`,
+      category: 'incident',
+      timestamp: 'Just now',
+      badgeText: 'RESOLVED',
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+
+    const newNotif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: 'Room Disruption Resolved',
+      message: `${disruption.roomCode} is now back online and operational.`,
+      timeAgo: 'Just now',
+      isRead: false,
+      type: 'success',
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    showToast(`Disruption for ${disruption.roomCode} marked as resolved!`, 'success');
+    return { success: true, message: 'Disruption resolved' };
+  };
+
+  const recommendAlternativeRooms = (booking: RoomBooking) => {
+    return api.recommendAlternativeRooms(booking, rooms, bookings);
+  };
+
+  const reallocateBooking = (bookingId: string, targetRoomId: string, reason: string) => {
+    const booking = bookings.find((b) => b.id === bookingId);
+    if (!booking) {
+      showToast('Booking not found', 'error');
+      return { success: false, message: 'Booking not found' };
+    }
+
+    const targetRoom = rooms.find((r) => r.id === targetRoomId);
+    if (!targetRoom) {
+      showToast('Target room not found', 'error');
+      return { success: false, message: 'Target room not found' };
+    }
+
+    if (targetRoom.capacity < booking.expectedAttendance) {
+      showToast(`Target room capacity (${targetRoom.capacity}) cannot accommodate attendance (${booking.expectedAttendance})`, 'error');
+      return { success: false, message: 'Target room capacity is insufficient' };
+    }
+
+    const conflictResult = api.checkBookingConflict(
+      targetRoom.id,
+      booking.date,
+      booking.startTime,
+      booking.endTime,
+      bookings,
+      booking.id
+    );
+
+    if (conflictResult.hasConflict && conflictResult.conflictingBooking) {
+      showToast('Target room has a booking conflict during that time slot', 'error');
+      return { success: false, message: 'Target room is not available during that time window' };
+    }
+
+    const prevRoomName = booking.roomName;
+
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === bookingId
+          ? {
+              ...b,
+              roomId: targetRoom.id,
+              roomCode: targetRoom.roomNumber,
+              roomName: targetRoom.name,
+              buildingId: targetRoom.buildingId,
+              buildingName: targetRoom.buildingName,
+              status: 'reallocated' as const,
+              reallocatedFromRoomId: booking.roomId,
+              reallocatedFromRoomName: prevRoomName,
+              reallocationReason: reason,
+              reallocationTimestamp: 'Just now',
+            }
+          : b
+      )
+    );
+
+    setRoomDisruptions((prev) =>
+      prev.map((d) => {
+        if (d.affectedBookingIds && d.affectedBookingIds.includes(bookingId)) {
+          return {
+            ...d,
+            alternativeRoom: targetRoom.name,
+            alternativeRoomId: targetRoom.id,
+            alternativeRoomName: targetRoom.name,
+            status: 'mitigated' as const,
+          };
+        }
+        return d;
+      })
+    );
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: 'reallocated emergency booking from',
+      target: `${prevRoomName} -> ${targetRoom.name} (${booking.bookingNumber})`,
+      category: 'system',
+      timestamp: 'Just now',
+      badgeText: 'REALLOCATED',
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+
+    const newNotif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: 'Booking Reallocated',
+      message: `Session "${booking.purpose}" (${booking.bookingNumber}) relocated from ${prevRoomName} to ${targetRoom.name} (${targetRoom.floor}, ${targetRoom.buildingName}).`,
+      timeAgo: 'Just now',
+      isRead: false,
+      type: 'success',
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    showToast(`Booking ${booking.bookingNumber} successfully reallocated to ${targetRoom.name}`, 'success');
+    return { success: true, message: 'Booking reallocated successfully' };
   };
 
   const markAllNotificationsRead = () => {
@@ -696,6 +1233,14 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setIsReportIncidentOpen,
         isCreateWorkOrderOpen,
         setIsCreateWorkOrderOpen,
+        isCreateBookingOpen,
+        setIsCreateBookingOpen,
+        isReportDisruptionOpen,
+        setIsReportDisruptionOpen,
+        isReallocateModalOpen,
+        setIsReallocateModalOpen,
+        selectedBookingForReallocation,
+        setSelectedBookingForReallocation,
         isNotificationDrawerOpen,
         setIsNotificationDrawerOpen,
         isSidebarCollapsed,
@@ -721,6 +1266,19 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         receiveProcurementStock,
         allocatePartToWorkOrder,
         returnPartFromWorkOrder,
+
+        // Phase 2.5: Room Booking & Emergency Operations
+        rooms,
+        bookings,
+        createBooking,
+        cancelBooking,
+        approveBooking,
+        rejectBooking,
+        checkBookingConflict,
+        reportRoomDisruption,
+        resolveRoomDisruption,
+        recommendAlternativeRooms,
+        reallocateBooking,
       }}
     >
       {children}

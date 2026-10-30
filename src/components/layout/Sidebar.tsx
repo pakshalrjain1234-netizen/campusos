@@ -41,13 +41,14 @@ const navItems: NavItem[] = [
 ];
 
 export default function Sidebar() {
-  const { isSidebarCollapsed, setIsSidebarCollapsed, inventoryItems, approvals } = useCampus();
+  const { isSidebarCollapsed, setIsSidebarCollapsed, inventoryItems, approvals, roomDisruptions } = useCampus();
   const navigate = useNavigate();
 
   const toggle = () => setIsSidebarCollapsed((prev: boolean) => !prev);
 
   const lowStockCount = inventoryItems.filter((i) => i.currentStock <= i.minThreshold).length;
   const pendingApprovalsCount = approvals.filter((a) => a.status === 'pending').length;
+  const activeDisruptionsCount = roomDisruptions.filter((r) => r.status !== 'resolved').length;
 
   const dynamicNavItems: NavItem[] = navItems.map((item) => {
     if (item.path === '/inventory') {
@@ -55,6 +56,9 @@ export default function Sidebar() {
     }
     if (item.path === '/approvals') {
       return { ...item, badge: pendingApprovalsCount };
+    }
+    if (item.path === '/bookings') {
+      return { ...item, badge: activeDisruptionsCount > 0 ? activeDisruptionsCount : undefined };
     }
     return item;
   });

@@ -139,16 +139,110 @@ export interface WorkOrderPartAllocation {
   status: 'allocated' | 'issued' | 'returned';
 }
 
+export type RoomType =
+  | 'lecture_hall'
+  | 'laboratory'
+  | 'seminar_hall'
+  | 'classroom'
+  | 'conference_room'
+  | 'auditorium'
+  | 'workshop';
+
+export type RoomStatus = 'available' | 'occupied' | 'maintenance' | 'disrupted';
+
+export interface Room {
+  id: string;
+  roomNumber: string;
+  name: string;
+  buildingId: string;
+  buildingName: string;
+  floor: string;
+  capacity: number;
+  roomType: RoomType;
+  facilities: string[];
+  equipment: string[];
+  status: RoomStatus;
+  activeDisruptionId?: string;
+  isAccessible: boolean;
+}
+
+export type BookingStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'reallocated';
+
+export interface RoomBooking {
+  id: string;
+  bookingNumber: string;
+  roomId: string;
+  roomCode: string;
+  roomName: string;
+  buildingId: string;
+  buildingName: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:MM
+  endTime: string; // HH:MM
+  purpose: string;
+  expectedAttendance: number;
+  requiredEquipment: string[];
+  bookedBy: string;
+  bookedByRole: string;
+  department: string;
+  status: BookingStatus;
+  requiresApproval?: boolean;
+  approvalRequestId?: string;
+  reallocatedFromRoomId?: string;
+  reallocatedFromRoomName?: string;
+  reallocationReason?: string;
+  reallocationTimestamp?: string;
+  createdAt: string;
+}
+
+export type DisruptionSeverity = 'critical' | 'high' | 'medium' | 'low';
+export type DisruptionStatus = 'reported' | 'under_review' | 'confirmed' | 'resolved';
+export type DisruptionCategory =
+  | 'room_unavailable'
+  | 'equipment_failure'
+  | 'maintenance_closure'
+  | 'safety_hazard'
+  | 'emergency_building_closure'
+  | 'hvac_power_failure';
+
 export interface RoomDisruption {
   id: string;
+  disruptionNumber?: string;
+  roomId?: string;
   roomCode: string;
+  buildingId?: string;
   buildingName: string;
   issue: string;
+  reasonCategory?: DisruptionCategory;
+  severity: DisruptionSeverity;
   affectedSchedule: string;
-  status: 'active' | 'mitigated' | 'resolved';
+  status: DisruptionStatus | 'active' | 'mitigated' | 'resolved';
   alternativeRoom?: string;
+  alternativeRoomId?: string;
+  alternativeRoomName?: string;
   resolutionEta: string;
+  reportedBy?: string;
+  reportedByRole?: string;
+  relatedIncidentTicket?: string;
+  relatedWorkOrderNumber?: string;
+  affectedBookingIds?: string[];
+  createdAt?: string;
 }
+
+export interface RoomRecommendation {
+  room: Room;
+  score: number;
+  matchReasons: string[];
+  conflictFree: boolean;
+  isNearby: boolean;
+  capacityFitPercent: number;
+}
+
 
 export type InsightType = 'repeated-complaint' | 'maintenance-risk' | 'low-stock' | 'room-conflict';
 

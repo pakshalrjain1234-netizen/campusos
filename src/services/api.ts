@@ -11,7 +11,10 @@ import {
   InventoryItem,
   StockTransaction,
   ProcurementRequest,
-  ProcurementStatus
+  ProcurementStatus,
+  Room,
+  RoomBooking,
+  RoomRecommendation
 } from '../types';
 import { 
   DEMO_INCIDENTS, 
@@ -24,7 +27,9 @@ import {
   CURRENT_USER,
   DEMO_INVENTORY_ITEMS,
   DEMO_STOCK_TRANSACTIONS,
-  DEMO_PROCUREMENT_REQUESTS
+  DEMO_PROCUREMENT_REQUESTS,
+  DEMO_ROOMS,
+  DEMO_ROOM_BOOKINGS
 } from '../data/demoData';
 import { CAMPUS_BUILDINGS } from '../data/buildingsData';
 
@@ -176,9 +181,174 @@ export const campusApi = {
     return [...CAMPUS_BUILDINGS];
   },
 
+  // Phase 2.5: Room Booking & Emergency Management
+  getRooms: async (): Promise<Room[]> => {
+    await new Promise((r) => setTimeout(r, 40));
+    return [...DEMO_ROOMS];
+  },
+
+  getBookings: async (): Promise<RoomBooking[]> => {
+    await new Promise((r) => setTimeout(r, 40));
+    return [...DEMO_ROOM_BOOKINGS];
+  },
+
+  /**
+   * Deterministic conflict detection engine.
+   * Compares time windows (startA < endB && endA > startB) on the same date and room.
+   */
+  checkBookingConflict: (
+    roomId: string,
+    date: string,
+    startTime: string,
+    endTime: string,
+    existingBookings: RoomBooking[],
+    excludeBookingId?: string
+  ): { hasConflict: boolean; conflictingBooking?: RoomBooking } => {
+    const conflict = existingBookings.find((b) => {
+      if (excludeBookingId && b.id === excludeBookingId) return false;
+      if (b.status === 'rejected' || b.status === 'cancelled') return false;
+      if (b.roomId !== roomId || b.date !== date) return false;
+
+      // Time overlap check: newStart < existingEnd && newEnd > existingStart
+      return startTime < b.endTime && endTime > b.startTime;
+    });
+
+    return {
+      hasConflict: !!conflict,
+      conflictingBooking: conflict,
+    };
+  },
+
+  /**
+   * Transparent rule-based alternative room recommendation engine.
+   * Considers capacity, required equipment, proximity (same building), and schedule availability.
+   */
+  recommendAlternativeRooms: (
+    booking: RoomBooking,
+    allRooms: Room[],
+    allBookings: RoomBooking[]
+  ): RoomRecommendation[] => {
+    const candidates: RoomRecommendation[] = [];
+
+    for (const room of allRooms) {
+      // Rule 1: Exclude the disrupted or original room
+      if (room.id === booking.roomId) continue;
+
+      // Rule 2: Exclude disrupted rooms or rooms under maintenance
+      if (room.status === 'disrupted' || room.status === 'maintenance') continue;
+
+      // Rule 3: Must meet capacity requirements (attendance <= room capacity)
+      if (room.capacity < booking.expectedAttendance) continue;
+
+      // Rule 4: Check conflict on date and time slot
+      const hasConflict = allBookings.some((b) => {
+        if (b.id === booking.id) return false;
+        if (b.status === 'rejected' || b.status === 'cancelled') return false;
+        if (b.roomId !== room.id || b.date !== booking.date) return false;
+        return booking.startTime < b.endTime && booking.endTime > b.startTime;
+      });
+
+      if (hasConflict) continue;
+
+      // Scoring criteria
+      let score = 100;
+      const matchReasons: string[] = [];
+
+      // Capacity fit analysis
+      const capacityRatio = room.capacity / Math.max(1, booking.expectedAttendance);
+      const capacityFitPercent = Math.min(100, Math.round((booking.expectedAttendance / room.capacity) * 100));
+
+      if (capacityRatio >= 1 && capacityRatio <= 1.4) {
+        score += 25;
+        matchReasons.push(`Optimal capacity match (${room.capacity} seats for ${booking.expectedAttendance} attendees)`);
+      } else if (capacityRatio <= 2.0) {
+        score += 15;
+        matchReasons.push(`Comfortable room size (${room.capacity} capacity)`);
+      } else {
+        score -= 10;
+        matchReasons.push(`Higher capacity room (${room.capacity} seats)`);
+      }
+
+      // Proximity / Same Building
+      const isNearby = room.buildingId === booking.buildingId;
+      if (isNearby) {
+        score += 30;
+        matchReasons.push(`Same building location (${room.buildingName})`);
+      } else {
+        matchReasons.push(`Located in ${room.buildingName}`);
+      }
+
+      // Equipment match
+      const roomEquipLower = (room.equipment || []).map((e) => e.toLowerCase());
+      let matchedEquipCount = 0;
+      for (const req of booking.requiredEquipment || []) {
+        const found = roomEquipLower.some((e) => e.includes(req.toLowerCase()) || req.toLowerCase().includes(e));
+        if (found) {
+          matchedEquipCount++;
+        }
+      }
+
+      if (booking.requiredEquipment && booking.requiredEquipment.length > 0) {
+        if (matchedEquipCount === booking.requiredEquipment.length) {
+          score += 25;
+          matchReasons.push(`Fully equipped with all ${matchedEquipCount} requested equipment items`);
+        } else if (matchedEquipCount > 0) {
+          score += 10;
+          matchReasons.push(`Equipped with ${matchedEquipCount} of ${booking.requiredEquipment.length} requested items`);
+        } else {
+          score -= 20;
+          matchReasons.push(`Missing some requested equipment`);
+        }
+      }
+
+      // Room type similarity
+      if (
+        (booking.purpose.toLowerCase().includes('lab') && room.roomType === 'laboratory') ||
+        (booking.purpose.toLowerCase().includes('briefing') && (room.roomType === 'seminar_hall' || room.roomType === 'lecture_hall')) ||
+        (booking.purpose.toLowerCase().includes('council') && room.roomType === 'auditorium')
+      ) {
+        score += 15;
+        matchReasons.push(`Matching room category (${room.roomType.replace('_', ' ')})`);
+      }
+
+      // Accessibility
+      if (room.isAccessible) {
+        score += 5;
+        matchReasons.push('Wheelchair accessible');
+      }
+
+      candidates.push({
+        room,
+        score,
+        matchReasons,
+        conflictFree: true,
+        isNearby,
+        capacityFitPercent,
+      });
+    }
+
+    // Sort descending by score
+    return candidates.sort((a, b) => b.score - a.score);
+  },
+
+  createBooking: async (booking: Omit<RoomBooking, 'id' | 'bookingNumber' | 'createdAt'>): Promise<RoomBooking> => {
+    await new Promise((r) => setTimeout(r, 80));
+    const newBooking: RoomBooking = {
+      ...booking,
+      id: `bk-${Date.now()}`,
+      bookingNumber: `BK-2026-${Math.floor(100 + Math.random() * 899)}`,
+      createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+    return newBooking;
+  },
+
   // User Profile
   getCurrentUser: async (): Promise<UserProfile> => {
     return { ...CURRENT_USER };
   },
 };
+
+export const api = campusApi;
+export default campusApi;
+
 

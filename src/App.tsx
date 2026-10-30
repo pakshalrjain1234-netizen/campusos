@@ -16,6 +16,9 @@ import SettingsPage from './pages/SettingsPage';
 import CommandPalette from './components/ui/CommandPalette';
 import ReportIncidentModal from './components/modals/ReportIncidentModal';
 import CreateWorkOrderModal from './components/modals/CreateWorkOrderModal';
+import CreateBookingModal from './components/modals/CreateBookingModal';
+import ReportDisruptionModal from './components/modals/ReportDisruptionModal';
+import ReallocateBookingModal from './components/modals/ReallocateBookingModal';
 import ToastNotification from './components/ui/ToastNotification';
 import NotificationDrawer from './components/ui/NotificationDrawer';
 
@@ -26,6 +29,9 @@ export default function App() {
       <CommandPalette />
       <ReportIncidentModal />
       <CreateWorkOrderModal />
+      <CreateBookingModal />
+      <ReportDisruptionModal />
+      <ReallocateBookingModal />
       <NotificationDrawer />
       <ToastNotification />
 
