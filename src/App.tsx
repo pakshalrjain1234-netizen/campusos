@@ -22,12 +22,13 @@ import ReallocateBookingModal from './components/modals/ReallocateBookingModal';
 import ToastNotification from './components/ui/ToastNotification';
 import NotificationDrawer from './components/ui/NotificationDrawer';
 import GlobalErrorBoundary from './components/ui/GlobalErrorBoundary';
+import CampusCopilotDrawer from './components/copilot/CampusCopilotDrawer';
+import { useCampus } from './context/CampusContext';
 
-export default function App() {
+function GlobalOverlays() {
+  const { isCopilotOpen, setIsCopilotOpen } = useCampus();
   return (
-    <GlobalErrorBoundary>
-      <CampusProvider>
-      {/* Global overlays – always mounted */}
+    <>
       <CommandPalette />
       <ReportIncidentModal />
       <CreateWorkOrderModal />
@@ -35,9 +36,18 @@ export default function App() {
       <ReportDisruptionModal />
       <ReallocateBookingModal />
       <NotificationDrawer />
+      <CampusCopilotDrawer isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} />
       <ToastNotification />
+    </>
+  );
+}
 
-      <Routes>
+export default function App() {
+  return (
+    <GlobalErrorBoundary>
+      <CampusProvider>
+        <GlobalOverlays />
+        <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />

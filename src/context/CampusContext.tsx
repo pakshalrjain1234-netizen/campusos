@@ -46,8 +46,12 @@ import {
   isValidDateFormat, 
   isValidTimeWindow, 
   isPositiveSafeInteger, 
-  isNonNegativeNumber 
+  isNonNegativeNumber,
+  isValidIncidentTransition,
+  isValidWorkOrderTransition,
+  isValidProcurementTransition
 } from '../utils/security';
+import { logger, RateLimiter } from '../utils/observability';
 
 export interface NotificationItem {
   id: string;
@@ -62,9 +66,11 @@ interface CampusContextType {
   user: UserProfile;
   setUserRole: (role: UserProfile['role']) => void;
   incidents: Incident[];
-  addIncident: (incident: Omit<Incident, 'id' | 'ticketNumber' | 'createdAt'>) => void;
+  addIncident: (incident: Omit<Incident, 'id' | 'ticketNumber' | 'createdAt'>) => { success: boolean; message: string; incident?: Incident };
+  updateIncidentStatus: (incidentId: string, nextStatus: Incident['status']) => { success: boolean; message: string };
   workOrders: WorkOrder[];
-  addWorkOrder: (order: Omit<WorkOrder, 'id' | 'orderNumber'>) => void;
+  addWorkOrder: (order: Omit<WorkOrder, 'id' | 'orderNumber'>) => { success: boolean; message: string; workOrder?: WorkOrder };
+  updateWorkOrderStatus: (workOrderId: string, nextStatus: WorkOrder['status']) => { success: boolean; message: string };
   stockAlerts: StockAlert[];
   roomDisruptions: RoomDisruption[];
   aiInsights: AIInsight[];
@@ -79,6 +85,8 @@ interface CampusContextType {
   // UI states
   isCommandPaletteOpen: boolean;
   setIsCommandPaletteOpen: (open: boolean) => void;
+  isCopilotOpen: boolean;
+  setIsCopilotOpen: (open: boolean) => void;
   isReportIncidentOpen: boolean;
   setIsReportIncidentOpen: (open: boolean) => void;
   isCreateWorkOrderOpen: boolean;
@@ -91,6 +99,7 @@ interface CampusContextType {
   // Notifications
   notifications: NotificationItem[];
   unreadNotificationCount: number;
+  addNotification: (title: string, message: string, type?: NotificationItem['type']) => void;
   markAllNotificationsRead: () => void;
   markNotificationRead: (id: string) => void;
   
@@ -120,8 +129,8 @@ interface CampusContextType {
   }) => { success: boolean; message: string };
   approveProcurement: (id: string) => void;
   rejectProcurement: (id: string) => void;
-  orderProcurement: (id: string) => void;
-  receiveProcurementStock: (id: string) => void;
+  orderProcurement: (id: string) => { success: boolean; message: string };
+  receiveProcurementStock: (id: string) => { success: boolean; message: string };
 
   // Phase 2.4: Work Order Part Integration
   allocatePartToWorkOrder: (
@@ -236,6 +245,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // Modals & Panels
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [isReportIncidentOpen, setIsReportIncidentOpen] = useState(false);
   const [isCreateWorkOrderOpen, setIsCreateWorkOrderOpen] = useState(false);
   const [isCreateBookingOpen, setIsCreateBookingOpen] = useState(false);
@@ -249,12 +259,16 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
-  // Keyboard shortcut for Command Palette (Ctrl+K or Cmd+K)
+  // Keyboard shortcut for Command Palette (Ctrl+K or Cmd+K) and Copilot (Ctrl+J or Cmd+J)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setIsCopilotOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -273,9 +287,34 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     showToast(`Role switched to ${role}`, 'info');
   };
 
+  // Duplicate submission throttle map: key -> timestamp
+  const [recentSubmissions, setRecentSubmissions] = useState<Map<string, number>>(new Map());
+
   const addIncident = (newIncidentData: Omit<Incident, 'id' | 'ticketNumber' | 'createdAt'>) => {
+    const cleanTitle = sanitizeString(newIncidentData.title, 150);
+    const cleanDesc = sanitizeString(newIncidentData.description, 500);
+
+    if (!cleanTitle) {
+      showToast('Incident title is required and cannot be blank', 'error');
+      return { success: false, message: 'Incident title is required' };
+    }
+
+    // Duplicate submission prevention (same title & building within 60s)
+    const dedupKey = `inc-${newIncidentData.buildingId}-${cleanTitle.toLowerCase()}`;
+    const now = Date.now();
+    const lastSub = recentSubmissions.get(dedupKey);
+
+    if (lastSub && now - lastSub < 60000) {
+      showToast('Duplicate submission: Identical incident reported within the last 60 seconds.', 'error');
+      return { success: false, message: 'Duplicate submission prevented by campus throttling policy.' };
+    }
+
+    setRecentSubmissions((prev) => new Map(prev).set(dedupKey, now));
+
     const newInc: Incident = {
       ...newIncidentData,
+      title: cleanTitle,
+      description: cleanDesc,
       id: `inc-${Date.now()}`,
       ticketNumber: `INC-${Math.floor(2400 + Math.random() * 600)}`,
       createdAt: 'Just now',
@@ -297,16 +336,111 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
     setRecentActivities((prev) => [newAct, ...prev]);
     showToast(`Incident #${newInc.ticketNumber} successfully submitted`, 'success');
+    return { success: true, message: 'Incident submitted', incident: newInc };
+  };
+
+  const updateIncidentStatus = (incidentId: string, nextStatus: Incident['status']) => {
+    const inc = incidents.find((i) => i.id === incidentId);
+    if (!inc) {
+      showToast('Incident ticket not found', 'error');
+      return { success: false, message: 'Incident ticket not found' };
+    }
+
+    const check = isValidIncidentTransition(inc.status, nextStatus, user.role);
+    if (!check.allowed) {
+      showToast(check.reason || 'Invalid status transition', 'error');
+      return { success: false, message: check.reason || 'Invalid status transition' };
+    }
+
+    setIncidents((prev) =>
+      prev.map((i) => (i.id === incidentId ? { ...i, status: nextStatus } : i))
+    );
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: `updated incident status to ${nextStatus}`,
+      target: `${inc.ticketNumber}: ${inc.title}`,
+      category: 'incident',
+      timestamp: 'Just now',
+      badgeText: nextStatus.toUpperCase(),
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+    showToast(`Incident #${inc.ticketNumber} status updated to ${nextStatus}`, 'success');
+    return { success: true, message: `Status updated to ${nextStatus}` };
   };
 
   const addWorkOrder = (newOrderData: Omit<WorkOrder, 'id' | 'orderNumber'>) => {
+    const cleanTitle = sanitizeString(newOrderData.title, 150);
+    const cleanLoc = sanitizeString(newOrderData.location, 100);
+
+    if (!cleanTitle) {
+      showToast('Work order title is required', 'error');
+      return { success: false, message: 'Work order title is required' };
+    }
+
+    if (!newOrderData.assignedEngineer || newOrderData.assignedEngineer.trim().length === 0) {
+      showToast('Work order must have a valid assigned maintenance engineer', 'error');
+      return { success: false, message: 'Assigned maintenance engineer is required' };
+    }
+
     const newOrder: WorkOrder = {
       ...newOrderData,
+      title: cleanTitle,
+      location: cleanLoc,
       id: `wo-${Date.now()}`,
       orderNumber: `WO-${Math.floor(8820 + Math.random() * 150)}`,
     };
     setWorkOrders((prev) => [newOrder, ...prev]);
     showToast(`Work Order #${newOrder.orderNumber} issued`, 'success');
+    return { success: true, message: 'Work order issued', workOrder: newOrder };
+  };
+
+  const updateWorkOrderStatus = (workOrderId: string, nextStatus: WorkOrder['status']) => {
+    const wo = workOrders.find((w) => w.id === workOrderId);
+    if (!wo) {
+      showToast('Work order not found', 'error');
+      return { success: false, message: 'Work order not found' };
+    }
+
+    const isAssigned =
+      user.name.trim().toLowerCase() === wo.assignedEngineer.trim().toLowerCase() ||
+      user.email.trim().toLowerCase() === wo.assignedEngineer.trim().toLowerCase();
+
+    const check = isValidWorkOrderTransition(wo.status, nextStatus, user.role, isAssigned);
+    if (!check.allowed) {
+      showToast(check.reason || 'Invalid status transition', 'error');
+      return { success: false, message: check.reason || 'Invalid status transition' };
+    }
+
+    setWorkOrders((prev) =>
+      prev.map((w) =>
+        w.id === workOrderId
+          ? {
+              ...w,
+              status: nextStatus,
+              completionRate: nextStatus === 'completed' ? 100 : w.completionRate,
+            }
+          : w
+      )
+    );
+
+    const newAct: ActivityItem = {
+      id: `act-${Date.now()}`,
+      actor: user.name,
+      actorRole: user.role,
+      avatar: user.avatar,
+      action: `updated work order status to ${nextStatus}`,
+      target: `${wo.orderNumber}: ${wo.title}`,
+      category: 'maintenance',
+      timestamp: 'Just now',
+      badgeText: nextStatus.toUpperCase(),
+    };
+    setRecentActivities((prev) => [newAct, ...prev]);
+    showToast(`Work Order #${wo.orderNumber} updated to ${nextStatus}`, 'success');
+    return { success: true, message: `Status updated to ${nextStatus}` };
   };
 
   // Phase 2.4 / 2.9: Hardened Stock Operation (RBAC, atomic, audit-logged, prevents negative stock)
@@ -550,20 +684,40 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const orderProcurement = (id: string) => {
+    const target = procurementRequests.find((r) => r.id === id);
+    if (!target) {
+      showToast('Procurement requisition not found', 'error');
+      return { success: false, message: 'Requisition not found' };
+    }
+
+    const check = isValidProcurementTransition(target.status, 'ordered');
+    if (!check.allowed) {
+      showToast(check.reason || 'Cannot order procurement', 'error');
+      return { success: false, message: check.reason || 'Invalid status transition' };
+    }
+
     setProcurementRequests((prev) =>
       prev.map((r) =>
         r.id === id ? { ...r, status: 'ordered' as const, orderedAt: 'Just now' } : r
       )
     );
-    const target = procurementRequests.find((r) => r.id === id);
-    if (target) {
-      showToast(`Purchase Order dispatched to ${target.supplierName}`, 'info');
-    }
+
+    showToast(`Purchase Order #${target.requestNumber} dispatched to ${target.supplierName}`, 'info');
+    return { success: true, message: 'Purchase order placed successfully' };
   };
 
   const receiveProcurementStock = (id: string) => {
     const target = procurementRequests.find((r) => r.id === id);
-    if (!target) return;
+    if (!target) {
+      showToast('Procurement requisition not found', 'error');
+      return { success: false, message: 'Requisition not found' };
+    }
+
+    const check = isValidProcurementTransition(target.status, 'received');
+    if (!check.allowed) {
+      showToast(check.reason || 'Cannot receive goods', 'error');
+      return { success: false, message: check.reason || 'Invalid status transition' };
+    }
 
     setProcurementRequests((prev) =>
       prev.map((r) =>
@@ -571,7 +725,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       )
     );
 
-    performStockOperation({
+    const stockOp = performStockOperation({
       itemId: target.itemId,
       type: 'stock_in',
       quantity: target.quantity,
@@ -580,7 +734,11 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       referenceId: target.requestNumber,
     });
 
-    showToast(`Received ${target.quantity} ${target.unit} of ${target.itemName}. Added to stock!`, 'success');
+    if (stockOp.success) {
+      showToast(`Received ${target.quantity} ${target.unit} of ${target.itemName}. Added to stock!`, 'success');
+      return { success: true, message: 'Stock received' };
+    }
+    return stockOp;
   };
 
   // Phase 2.4: Work Order Part Integration
@@ -1384,6 +1542,32 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: 'Booking reallocated successfully' };
   };
 
+  const addNotification = (title: string, message: string, type: NotificationItem['type'] = 'info') => {
+    const cleanTitle = sanitizeString(title, 120);
+    const cleanMsg = sanitizeString(message, 300);
+
+    // Notification deduplication: prevent identical notification titles within 60s
+    const dedupKey = `notif-${cleanTitle.toLowerCase()}`;
+    const now = Date.now();
+    const lastTime = recentSubmissions.get(dedupKey);
+    if (lastTime && now - lastTime < 60000) {
+      logger.warn('Notification', 'Suppressed duplicate notification within throttle window', { title: cleanTitle });
+      return;
+    }
+
+    setRecentSubmissions((prev) => new Map(prev).set(dedupKey, now));
+
+    const newNotif: NotificationItem = {
+      id: `notif-${Date.now()}`,
+      title: cleanTitle,
+      message: cleanMsg,
+      timeAgo: 'Just now',
+      isRead: false,
+      type,
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+  };
+
   const markAllNotificationsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     showToast('All notifications marked as read', 'info');
@@ -1404,8 +1588,10 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setUserRole,
         incidents,
         addIncident,
+        updateIncidentStatus,
         workOrders,
         addWorkOrder,
+        updateWorkOrderStatus,
         stockAlerts,
         roomDisruptions,
         aiInsights,
@@ -1419,6 +1605,8 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
         isCommandPaletteOpen,
         setIsCommandPaletteOpen,
+        isCopilotOpen,
+        setIsCopilotOpen,
         isReportIncidentOpen,
         setIsReportIncidentOpen,
         isCreateWorkOrderOpen,
@@ -1438,6 +1626,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
         notifications,
         unreadNotificationCount,
+        addNotification,
         markAllNotificationsRead,
         markNotificationRead,
 

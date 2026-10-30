@@ -124,6 +124,9 @@ export interface ProcurementRequest {
   orderedAt?: string;
   receivedAt?: string;
   createdAt: string;
+  canApprove?: boolean;
+  selfApprovalBlocked?: boolean;
+  businessApprovalRestricted?: boolean;
 }
 
 export interface WorkOrderPartAllocation {
@@ -309,12 +312,38 @@ export interface Building {
   position: [number, number, number]; // 3D coordinates
 }
 
+export type CampusRole =
+  | 'student_faculty'
+  | 'technician'
+  | 'department_manager'
+  | 'facilities_administrator'
+  | 'procurement_approver'
+  | 'system_administrator';
+
+export type LegacyRole =
+  | 'Chief Operations Officer'
+  | 'Director of Facilities'
+  | 'Lead Maintenance Engineer'
+  | 'Student Affairs Liaison';
+
 export interface UserProfile {
   id: string;
   name: string;
-  role: 'Chief Operations Officer' | 'Director of Facilities' | 'Lead Maintenance Engineer' | 'Student Affairs Liaison';
+  role: CampusRole | LegacyRole;
   email: string;
   avatar: string;
   department: string;
+}
+
+export function normalizeCampusRole(role?: string): CampusRole {
+  if (!role) return 'student_faculty';
+  const r = role.toLowerCase().trim();
+  if (r.includes('student') || r.includes('liaison') || r.includes('faculty')) return 'student_faculty';
+  if (r.includes('tech') || r.includes('engineer') || r.includes('maintenance')) return 'technician';
+  if (r.includes('dept') || r.includes('department') || r.includes('manager')) return 'department_manager';
+  if (r.includes('facil') || r.includes('director') || r.includes('coo') || r.includes('operations officer')) return 'facilities_administrator';
+  if (r.includes('procur') || r.includes('finance') || r.includes('approv')) return 'procurement_approver';
+  if (r.includes('system') || r.includes('sysadmin') || r.includes('admin')) return 'system_administrator';
+  return 'student_faculty';
 }
 

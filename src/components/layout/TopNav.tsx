@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Bell, ChevronDown, Menu, X, User, LogOut, RefreshCw } from 'lucide-react';
+import { Search, Bell, ChevronDown, Menu, X, User, LogOut, RefreshCw, Sparkles } from 'lucide-react';
 import { useCampus } from '../../context/CampusContext';
 
 const PAGE_TITLES: Record<string, string> = {
@@ -26,6 +26,7 @@ export default function TopNav() {
     unreadNotificationCount,
     setIsCommandPaletteOpen,
     setIsNotificationDrawerOpen,
+    setIsCopilotOpen,
     isSidebarCollapsed,
     setIsSidebarCollapsed,
   } = useCampus();
@@ -82,6 +83,19 @@ export default function TopNav() {
         <span className="font-jakarta text-[13px] text-[#74788C] flex-1">Search campus…</span>
         <kbd className="font-jakarta text-[10px] font-semibold text-[#74788C] bg-[#E7E2DD] px-1.5 py-0.5 rounded-md">
           ⌘K
+        </kbd>
+      </button>
+
+      {/* AI Operations Copilot Trigger */}
+      <button
+        onClick={() => setIsCopilotOpen(true)}
+        className="flex items-center gap-2 px-3 py-2 rounded-xl text-[#24283B] bg-[#E6E9FF] hover:bg-[#D4DAFF] border border-[#CCD3FF] shadow-sm transition-all duration-200 group"
+        title="Open CampusOps Copilot (Ctrl+J)"
+      >
+        <Sparkles size={16} className="text-[#5B3E96] group-hover:scale-110 transition-transform" />
+        <span className="font-space font-bold text-xs text-[#24283B] hidden sm:inline">AI Copilot</span>
+        <kbd className="hidden lg:inline font-jakarta text-[9px] font-bold text-[#5B3E96] bg-white/80 px-1 py-0.5 rounded shadow-xs">
+          ⌘J
         </kbd>
       </button>
 
