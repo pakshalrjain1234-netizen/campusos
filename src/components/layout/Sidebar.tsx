@@ -41,10 +41,23 @@ const navItems: NavItem[] = [
 ];
 
 export default function Sidebar() {
-  const { isSidebarCollapsed, setIsSidebarCollapsed } = useCampus();
+  const { isSidebarCollapsed, setIsSidebarCollapsed, inventoryItems, approvals } = useCampus();
   const navigate = useNavigate();
 
   const toggle = () => setIsSidebarCollapsed((prev: boolean) => !prev);
+
+  const lowStockCount = inventoryItems.filter((i) => i.currentStock <= i.minThreshold).length;
+  const pendingApprovalsCount = approvals.filter((a) => a.status === 'pending').length;
+
+  const dynamicNavItems: NavItem[] = navItems.map((item) => {
+    if (item.path === '/inventory') {
+      return { ...item, badge: lowStockCount };
+    }
+    if (item.path === '/approvals') {
+      return { ...item, badge: pendingApprovalsCount };
+    }
+    return item;
+  });
 
   return (
     <aside
@@ -96,7 +109,7 @@ export default function Sidebar() {
           </p>
         )}
 
-        {navItems.filter(i => i.group === 'campus').map(item => (
+        {dynamicNavItems.filter(i => i.group === 'campus').map(item => (
           <NavItem key={item.path} item={item} collapsed={isSidebarCollapsed} />
         ))}
 
@@ -110,7 +123,7 @@ export default function Sidebar() {
           </p>
         )}
 
-        {navItems.filter(i => i.group === 'management').map(item => (
+        {dynamicNavItems.filter(i => i.group === 'management').map(item => (
           <NavItem key={item.path} item={item} collapsed={isSidebarCollapsed} />
         ))}
       </nav>

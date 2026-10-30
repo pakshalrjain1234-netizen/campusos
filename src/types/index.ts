@@ -41,6 +41,7 @@ export interface WorkOrder {
   slaRemaining: string;
   completionRate: number;
   partsRequired?: string[];
+  allocatedParts?: WorkOrderPartAllocation[];
 }
 
 export interface StockAlert {
@@ -54,6 +55,88 @@ export interface StockAlert {
   reorderStatus: 'reordered' | 'critical' | 'pending_approval';
   leadTimeDays: number;
   location: string;
+}
+
+export type StockTransactionType = 'stock_in' | 'stock_out' | 'allocation' | 'return' | 'adjustment';
+export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
+
+export interface InventoryItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  description: string;
+  unit: string;
+  unitCost: number;
+  currentStock: number;
+  minThreshold: number;
+  maxThreshold: number;
+  location: string;
+  buildingId?: string;
+  supplierName: string;
+  supplierContact: string;
+  leadTimeDays: number;
+  allocatedQuantity: number;
+  status: StockStatus;
+  lastRestockedAt?: string;
+  compatibleEquipment?: string[];
+}
+
+export interface StockTransaction {
+  id: string;
+  transactionNumber: string;
+  itemId: string;
+  itemSku: string;
+  itemName: string;
+  type: StockTransactionType;
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  referenceType: 'work_order' | 'procurement' | 'manual_adjustment' | 'return';
+  referenceId?: string;
+  reason: string;
+  performedBy: string;
+  timestamp: string;
+}
+
+export type ProcurementStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'ordered' | 'received';
+export type ProcurementUrgency = 'urgent' | 'high' | 'medium' | 'normal';
+
+export interface ProcurementRequest {
+  id: string;
+  requestNumber: string;
+  itemId: string;
+  itemSku: string;
+  itemName: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  estimatedUnitCost: number;
+  totalEstimatedCost: number;
+  supplierName: string;
+  supplierContact?: string;
+  urgency: ProcurementUrgency;
+  status: ProcurementStatus;
+  reason: string;
+  ruleTriggerReason?: string;
+  requestedBy: string;
+  approvedBy?: string;
+  orderedAt?: string;
+  receivedAt?: string;
+  createdAt: string;
+}
+
+export interface WorkOrderPartAllocation {
+  id: string;
+  workOrderId: string;
+  orderNumber?: string;
+  itemId: string;
+  itemSku: string;
+  itemName: string;
+  quantity: number;
+  allocatedAt: string;
+  allocatedBy: string;
+  status: 'allocated' | 'issued' | 'returned';
 }
 
 export interface RoomDisruption {

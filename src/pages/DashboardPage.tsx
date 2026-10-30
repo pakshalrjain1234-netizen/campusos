@@ -315,6 +315,7 @@ export default function DashboardPage() {
     recentActivities,
     approvals,
     buildings,
+    inventoryItems,
     approveRequest,
     rejectRequest,
     setIsReportIncidentOpen,
@@ -326,7 +327,8 @@ export default function DashboardPage() {
   });
 
   const openIncidentCount = incidents.filter((i) => i.status !== 'resolved' && i.status !== 'closed').length;
-  const stockAlertCount = stockAlerts.length;
+  const stockAlertCount = inventoryItems.filter((i) => i.currentStock <= i.minThreshold).length;
+  const outOfStockCount = inventoryItems.filter((i) => i.status === 'out_of_stock').length;
   const roomDisruptCount = roomDisruptions.filter((r) => r.status === 'active').length;
 
   const topPriorities: { item: WorkOrder | Incident; type: 'wo' | 'inc' }[] = [
@@ -394,7 +396,7 @@ export default function DashboardPage() {
         <KPICard
           label="Stock Alerts"
           value={stockAlertCount}
-          trend="2 critical items low"
+          trend={`${outOfStockCount} critical items out of stock`}
           trendUp={null}
           bg="#FFF2E7"
           iconBg="#FFE4CF"

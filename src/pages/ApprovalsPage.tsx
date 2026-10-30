@@ -55,10 +55,15 @@ export default function ApprovalsPage() {
                       </div>
                       <h3 className="font-space font-bold text-[14px] text-[#24283B]">{appr.title}</h3>
                       <p className="font-jakarta text-[12px] text-[#74788C] mt-1">{appr.reason}</p>
-                      <div className="flex items-center gap-4 mt-2">
+                      <div className="flex items-center gap-4 mt-2 flex-wrap">
                         <span className="font-jakarta text-[12px] text-[#74788C]">{appr.requesterName} · {appr.department}</span>
                         <span className="flex items-center gap-1 font-jakarta text-[12px] text-[#74788C]"><Clock size={11} />{appr.submittedAt}</span>
                         <span className="font-space font-bold text-[13px] text-[#24283B]">{appr.estimatedCost}</span>
+                        {appr.category.toLowerCase().includes('procurement') && (
+                          <Link to="/inventory" className="text-[#6878CA] hover:underline font-jakarta text-[11px] font-semibold flex items-center gap-1">
+                            Inventory Hub →
+                          </Link>
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-col gap-2 flex-shrink-0">

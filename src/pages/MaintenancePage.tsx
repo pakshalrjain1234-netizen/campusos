@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wrench, Clock, User, TrendingUp, Plus } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, User, TrendingUp, Plus, Package, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { useCampus } from '../context/CampusContext';
+import AllocatePartModal from '../components/modals/AllocatePartModal';
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   urgent: { bg: '#F8DCE8', text: '#BA3D6E', label: 'Urgent' },
@@ -18,7 +19,15 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }>
 };
 
 export default function MaintenancePage() {
-  const { workOrders, setIsCreateWorkOrderOpen } = useCampus();
+  const { workOrders, setIsCreateWorkOrderOpen, returnPartFromWorkOrder } = useCampus();
+
+  const [isAllocateModalOpen, setIsAllocateModalOpen] = useState(false);
+  const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string | null>(null);
+
+  const openAllocateModal = (woId: string) => {
+    setSelectedWorkOrderId(woId);
+    setIsAllocateModalOpen(true);
+  };
 
   return (
     <div className="px-6 py-7 space-y-6">
@@ -28,7 +37,7 @@ export default function MaintenancePage() {
             <ArrowLeft size={14} /> Dashboard
           </Link>
           <h1 className="font-space font-bold text-3xl text-[#24283B] tracking-tight">Maintenance</h1>
-          <p className="font-jakarta text-sm text-[#74788C] mt-1">Active work orders, scheduling and completion tracking</p>
+          <p className="font-jakarta text-sm text-[#74788C] mt-1">Active work orders, spare part allocations and completion tracking</p>
         </div>
         <button
           onClick={() => setIsCreateWorkOrderOpen(true)}
@@ -58,6 +67,8 @@ export default function MaintenancePage() {
         {workOrders.map((wo) => {
           const pri = PRIORITY_STYLES[wo.priority];
           const stat = STATUS_STYLES[wo.status];
+          const activeAllocations = (wo.allocatedParts || []).filter((a) => a.status === 'allocated');
+
           return (
             <div key={wo.id} className="p-5 bg-white rounded-card border border-[#E7E2DD] hover:shadow-pastel-sm transition-all duration-200">
               <div className="flex items-start gap-4">
@@ -65,17 +76,29 @@ export default function MaintenancePage() {
                   <Wrench size={16} className="text-[#C06B33]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-jakarta font-bold text-[12px] text-[#74788C]">{wo.orderNumber}</span>
-                    <span className="px-2 py-0.5 rounded-full font-jakarta text-[10px] font-bold" style={{ background: pri.bg, color: pri.text }}>{pri.label}</span>
-                    <span className="px-2 py-0.5 rounded-full font-jakarta text-[10px] font-bold" style={{ background: stat.bg, color: stat.text }}>{stat.label}</span>
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-jakarta font-bold text-[12px] text-[#74788C]">{wo.orderNumber}</span>
+                      <span className="px-2 py-0.5 rounded-full font-jakarta text-[10px] font-bold" style={{ background: pri.bg, color: pri.text }}>{pri.label}</span>
+                      <span className="px-2 py-0.5 rounded-full font-jakarta text-[10px] font-bold" style={{ background: stat.bg, color: stat.text }}>{stat.label}</span>
+                    </div>
+
+                    {/* Quick part allocate button */}
+                    <button
+                      onClick={() => openAllocateModal(wo.id)}
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#FAF7F1] border border-[#E7E2DD] text-[#24283B] hover:bg-[#F6F0E5] font-jakarta text-xs font-semibold transition-colors"
+                    >
+                      <Package size={13} className="text-[#6878CA]" /> Allocate Parts
+                    </button>
                   </div>
+
                   <h3 className="font-space font-bold text-[14px] text-[#24283B]">{wo.title}</h3>
                   <div className="flex items-center gap-4 mt-2 flex-wrap">
                     <span className="font-jakarta text-[12px] text-[#74788C]">{wo.buildingName} · {wo.location}</span>
                     <span className="flex items-center gap-1 font-jakarta text-[12px] text-[#74788C]"><Clock size={11} />Due: {wo.dueDate}</span>
                     <span className="flex items-center gap-1 font-jakarta text-[12px] text-[#74788C]"><User size={11} />{wo.assignedEngineer}</span>
                   </div>
+
                   {/* Progress bar */}
                   {wo.completionRate > 0 && (
                     <div className="mt-3 flex items-center gap-3">
@@ -85,11 +108,43 @@ export default function MaintenancePage() {
                       <span className="font-jakarta text-[11px] text-[#2E8B67] font-semibold">{wo.completionRate}%</span>
                     </div>
                   )}
+
+                  {/* Required parts list */}
                   {wo.partsRequired && wo.partsRequired.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
+                    <div className="flex items-center gap-2 flex-wrap mt-2.5">
+                      <span className="font-jakarta text-[11px] text-[#74788C] font-semibold">Parts Required:</span>
                       {wo.partsRequired.map((p) => (
-                        <span key={p} className="px-2 py-0.5 rounded-full bg-[#F6F0E5] text-[#74788C] font-jakarta text-[10px]">{p}</span>
+                        <span key={p} className="px-2 py-0.5 rounded-full bg-[#F6F0E5] text-[#74788C] font-jakarta text-[10px] font-medium border border-[#E7E2DD]">
+                          {p}
+                        </span>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Phase 2.4: Allocated Parts Section */}
+                  {activeAllocations.length > 0 && (
+                    <div className="mt-3 p-3 rounded-xl bg-[#E9F9F2] border border-[#C5EFE0] space-y-1.5">
+                      <span className="font-jakarta text-[11px] font-bold text-[#1B6648] flex items-center gap-1">
+                        <CheckCircle2 size={12} /> Allocated Workshop Spares:
+                      </span>
+                      <div className="space-y-1">
+                        {activeAllocations.map((alloc) => (
+                          <div key={alloc.id} className="flex items-center justify-between text-xs font-jakarta text-[#24283B]">
+                            <span className="flex items-center gap-2">
+                              <strong>{alloc.quantity}x</strong> {alloc.itemName}
+                              <span className="text-[#74788C] text-[10px]">({alloc.allocatedAt})</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => returnPartFromWorkOrder(wo.id, alloc.id, 'Unused part returned to stores')}
+                              className="text-[11px] font-semibold text-[#BA3D6E] hover:underline flex items-center gap-1"
+                              title="Return unused spare part to inventory"
+                            >
+                              <RotateCcw size={10} /> Return Unused
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -101,9 +156,16 @@ export default function MaintenancePage() {
 
       <div className="p-4 rounded-card bg-[#F2F4FF] border border-[#E6E9FF]">
         <p className="font-jakarta text-[12px] text-[#6878CA]">
-          <strong>Phase 1 · Demo Mode:</strong> Full Gantt scheduling, technician GPS dispatch, parts ordering, and predictive maintenance workflows are planned for Phase 2.
+          <strong>Phase 2.4 Active:</strong> Technicians can directly allocate workshop spare parts to any work order with automatic inventory deduction and safety stock reconciliation.
         </p>
       </div>
+
+      {/* Allocate Part Modal */}
+      <AllocatePartModal
+        isOpen={isAllocateModalOpen}
+        onClose={() => setIsAllocateModalOpen(false)}
+        initialWorkOrderId={selectedWorkOrderId}
+      />
     </div>
   );
 }

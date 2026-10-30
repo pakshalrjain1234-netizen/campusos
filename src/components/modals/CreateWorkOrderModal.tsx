@@ -16,7 +16,7 @@ const CATEGORIES = [
 ];
 
 export default function CreateWorkOrderModal() {
-  const { isCreateWorkOrderOpen, setIsCreateWorkOrderOpen, addWorkOrder, user, buildings } = useCampus();
+  const { isCreateWorkOrderOpen, setIsCreateWorkOrderOpen, addWorkOrder, user, buildings, inventoryItems } = useCampus();
 
   const [form, setForm] = useState({
     title: '',
@@ -178,12 +178,20 @@ export default function CreateWorkOrderModal() {
             <label className="block font-jakarta text-[12px] font-semibold text-[#24283B] mb-1.5">Parts Required</label>
             <div className="flex gap-2">
               <input
+                list="inventory-parts-list"
                 value={form.partInput}
                 onChange={(e) => setForm({ ...form, partInput: e.target.value })}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPart(); } }}
-                placeholder="Add part name and press Enter"
+                placeholder="Select catalogue part or type custom part name"
                 className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#E7E2DD] font-jakarta text-sm text-[#24283B] placeholder:text-[#74788C] focus:outline-none focus:border-[#C06B33] transition-all"
               />
+              <datalist id="inventory-parts-list">
+                {inventoryItems.map((item) => (
+                  <option key={item.id} value={item.name}>
+                    [{item.sku}] {item.category} ({item.currentStock} {item.unit} available)
+                  </option>
+                ))}
+              </datalist>
               <button type="button" onClick={addPart} className="px-4 py-2.5 rounded-xl bg-[#FFE4CF] text-[#C06B33] font-jakarta font-semibold text-sm hover:bg-[#FFC9A0] transition-colors">
                 Add
               </button>
