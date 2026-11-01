@@ -1,6 +1,59 @@
+export * from './auth';
+
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type IncidentStatus = 'open' | 'in_progress' | 'investigating' | 'resolved' | 'closed';
-export type IncidentCategory = 'Electrical' | 'Plumbing' | 'HVAC' | 'Structural' | 'IT / Network' | 'Safety' | 'General';
+
+export type IncidentCategory = 
+  | 'Electrical' 
+  | 'Plumbing' 
+  | 'HVAC' 
+  | 'Structural' 
+  | 'IT / Network' 
+  | 'Safety' 
+  | 'Sanitation'
+  | 'Pest Control'
+  | 'Furniture & Fixtures'
+  | 'Landscaping'
+  | 'General';
+
+export type IncidentLifecycleStatus = 
+  | 'reported' 
+  | 'triaged' 
+  | 'assigned' 
+  | 'acknowledged' 
+  | 'in_progress' 
+  | 'resolved' 
+  | 'closed' 
+  | 'cancelled';
+
+export type SafetyRiskLevel = 'low' | 'medium' | 'high' | 'hazardous';
+export type DisruptionLevel = 'none' | 'minor' | 'moderate' | 'severe';
+
+export interface TimelineEvent {
+  id: string;
+  incidentId: string;
+  fromStatus?: string;
+  toStatus: string;
+  actorId?: string;
+  actorName: string;
+  actorRole: string;
+  remarks?: string;
+  createdAt: string;
+}
+
+export interface TriageDetails {
+  score: number;
+  priority: IncidentSeverity;
+  reason: string;
+  safetyRisk: SafetyRiskLevel;
+  disruptionLevel: DisruptionLevel;
+  peopleAffected: number;
+  facilityCriticality: 'critical' | 'high' | 'medium' | 'standard';
+  ackTargetMinutes: number;
+  resolutionTargetHours: number;
+  calculatedAt: string;
+  isAiEnhanced?: boolean;
+}
 
 export interface Incident {
   id: string;
@@ -9,21 +62,75 @@ export interface Incident {
   description: string;
   buildingId: string;
   buildingName: string;
+  building?: string;
+  location?: string;
   floor: string;
   room?: string;
   category: IncidentCategory;
   severity: IncidentSeverity;
   status: IncidentStatus;
+  lifecycleStatus?: IncidentLifecycleStatus;
   reportedBy: string;
   reportedRole: string;
+  reporterId?: string;
+  department?: string;
   assignedTo?: string;
+  assignedEngineerId?: string;
   createdAt: string;
   slaDeadline: string;
+  ackSlaDeadline?: string;
+  acknowledgedAt?: string;
+  resolvedAt?: string;
+  closedAt?: string;
+  closedBy?: string;
+  safetyRisk?: SafetyRiskLevel | string;
+  disruptionLevel?: DisruptionLevel | string;
+  peopleAffected?: number;
+  evidenceUrls?: string[];
+  triageDetails?: TriageDetails;
+  timeline?: TimelineEvent[];
+  workOrderId?: string;
+  isSlaBreached?: boolean;
   isDemo?: boolean;
+  assetId?: string;
+  assetName?: string;
+  assetCategory?: string;
+  mappedLocationLevel?: 'building' | 'floor' | 'room' | 'asset';
+  annotationCoordinates?: { x: number; y: number };
+}
+
+export interface MappedAsset {
+  id: string;
+  name: string;
+  category: string;
+  buildingId: string;
+  buildingName: string;
+  floor: string;
+  room: string;
+  photoUrl: string;
+  annotationCoordinates: { x: number; y: number }; // normalized percentages 0-100 on photo
+  position3D?: [number, number, number];
+  serialNumber?: string;
+  installDate?: string;
+  lastServicedDate?: string;
+  maintenanceHistory?: Array<{ date: string; action: string; technician: string; notes: string }>;
 }
 
 export type PriorityLevel = 'urgent' | 'high' | 'medium' | 'low';
-export type WorkOrderStatus = 'unassigned' | 'in_progress' | 'awaiting_parts' | 'completed';
+export type WorkOrderStatus = 'unassigned' | 'in_progress' | 'awaiting_parts' | 'completed' | 'verified';
+
+export interface MaintenanceTechnician {
+  id: string;
+  name: string;
+  fullName: string;
+  email: string;
+  role: 'technician';
+  department?: string;
+  departmentId?: string;
+  avatar?: string;
+  phone?: string;
+  isActive?: boolean;
+}
 
 export interface WorkOrder {
   id: string;
@@ -36,67 +143,95 @@ export interface WorkOrder {
   priority: PriorityLevel;
   status: WorkOrderStatus;
   assignedEngineer: string;
+  assignedEngineerId?: string;
+  assignedTo?: string;
+  assigneeId?: string;
+  department?: string;
+  estimatedHours?: number | string;
   engineerAvatar: string;
   dueDate: string;
   slaRemaining: string;
   completionRate: number;
   partsRequired?: string[];
   allocatedParts?: WorkOrderPartAllocation[];
+  incidentId?: string;
+  diagnosis?: string;
+  repairInstructions?: string;
+  completionNotes?: string;
+  inspectedBy?: string;
+  inspectedAt?: string;
+}
+
+export interface EngineerProfile {
+  id: string;
+  name: string;
+  email: string;
+  avatar: string;
+  department: string;
+  specialties: IncidentCategory[];
+  activeTicketCount: number;
+  maxCapacity: number;
+  availability: 'available' | 'busy' | 'on_leave';
+  rating: number; // e.g. 4.9
 }
 
 export interface StockAlert {
   id: string;
   sku: string;
-  itemName: string;
+  itemName?: string;
+  name?: string; // alias for itemName
   category: string;
   currentStock: number;
   minThreshold: number;
+  threshold?: number;
   unit: string;
-  reorderStatus: 'reordered' | 'critical' | 'pending_approval';
-  leadTimeDays: number;
+  reorderStatus?: 'optimal' | 'reordered' | 'critical' | 'pending_approval';
+  leadTimeDays?: number;
   location: string;
+  unitCost?: number;
 }
 
-export type StockTransactionType = 'stock_in' | 'stock_out' | 'allocation' | 'return' | 'adjustment';
 export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
 
-export interface InventoryItem {
-  id: string;
-  sku: string;
-  name: string;
-  category: string;
-  description: string;
-  unit: string;
+export interface InventoryItem extends StockAlert {
   unitCost: number;
-  currentStock: number;
-  minThreshold: number;
-  maxThreshold: number;
-  location: string;
+  name?: string; // alias for itemName
+  description?: string;
+  maxThreshold?: number;
   buildingId?: string;
-  supplierName: string;
-  supplierContact: string;
-  leadTimeDays: number;
-  allocatedQuantity: number;
-  status: StockStatus;
+  supplierName?: string;
+  supplierContact?: string;
+  allocatedQuantity?: number;
+  status?: StockStatus;
   lastRestockedAt?: string;
   compatibleEquipment?: string[];
+  reorderPoint?: number;
 }
+
+export type StockTransactionType = 'stock_in' | 'stock_out' | 'allocation' | 'receipt' | 'return' | 'adjustment';
 
 export interface StockTransaction {
   id: string;
-  transactionNumber: string;
-  itemId: string;
-  itemSku: string;
-  itemName: string;
-  type: StockTransactionType;
+  sku?: string;
+  itemSku?: string; // alias for sku
+  itemName?: string;
+  name?: string; // alias for itemName
   quantity: number;
-  previousStock: number;
-  newStock: number;
-  referenceType: 'work_order' | 'procurement' | 'manual_adjustment' | 'return';
+  type: StockTransactionType;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  transactionNumber?: string;
+  itemId?: string;
+  previousStock?: number;
+  newStock?: number;
+  referenceType?: 'work_order' | 'procurement' | 'manual_adjustment' | 'return';
   referenceId?: string;
-  reason: string;
-  performedBy: string;
-  timestamp: string;
+  reason?: string;
+  performedBy?: string;
+  actorId?: string;
+  actorName?: string;
+  timestamp?: string;
+  createdAt?: string;
 }
 
 export type ProcurementStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'ordered' | 'received';
@@ -165,35 +300,46 @@ export interface Room {
   facilities: string[];
   equipment: string[];
   status: RoomStatus;
-  activeDisruptionId?: string;
   isAccessible: boolean;
+  currentDisruption?: string;
+  activeDisruptionId?: string;
 }
 
 export type BookingStatus =
   | 'pending'
   | 'approved'
   | 'rejected'
+  | 'active'
+  | 'completed'
   | 'cancelled'
+  | 'confirmed'
+  | 'relocated'
   | 'reallocated';
 
 export interface RoomBooking {
   id: string;
-  bookingNumber: string;
-  roomId: string;
+  bookingCode?: string;
+  bookingNumber?: string;
+  roomId?: string;
   roomCode: string;
   roomName: string;
-  buildingId: string;
+  buildingId?: string;
+  buildingCode?: string;
   buildingName: string;
-  date: string; // YYYY-MM-DD
-  startTime: string; // HH:MM
-  endTime: string; // HH:MM
-  purpose: string;
-  expectedAttendance: number;
-  requiredEquipment: string[];
+  date?: string; // YYYY-MM-DD
+  startTime: string; // HH:MM or ISO
+  endTime: string; // HH:MM or ISO
+  purpose?: string;
+  title?: string;
+  eventType?: 'lecture' | 'examination' | 'lab_session' | 'seminar' | 'faculty_meeting';
+  expectedAttendance?: number;
+  expectedAttendees?: number;
+  requiredEquipment?: string[];
   bookedBy: string;
   bookedByRole: string;
-  department: string;
+  department?: string;
   status: BookingStatus;
+  timeSlot?: string;
   requiresApproval?: boolean;
   approvalRequestId?: string;
   reallocatedFromRoomId?: string;
@@ -204,6 +350,14 @@ export interface RoomBooking {
   approvalTimestamp?: string;
   rejectionReason?: string;
   notes?: string;
+  originalRoomCode?: string;
+  relocationDetails?: {
+    reason: string;
+    suggestedRoomCode: string;
+    approvedBy?: string;
+    approvedAt?: string;
+    isExamRelocation: boolean;
+  };
   createdAt: string;
 }
 
@@ -222,13 +376,15 @@ export interface RoomDisruption {
   disruptionNumber?: string;
   roomId?: string;
   roomCode: string;
+  roomName?: string;
   buildingId?: string;
+  buildingCode?: string;
   buildingName: string;
   issue: string;
+  severity: DisruptionSeverity | string;
   reasonCategory?: DisruptionCategory;
-  severity: DisruptionSeverity;
-  affectedSchedule: string;
-  status: DisruptionStatus | 'active' | 'mitigated' | 'resolved';
+  affectedSchedule?: string;
+  status: DisruptionStatus | 'active' | 'pending_relocation_approval' | 'mitigated' | 'resolved';
   alternativeRoom?: string;
   alternativeRoomId?: string;
   alternativeRoomName?: string;
@@ -238,7 +394,18 @@ export interface RoomDisruption {
   relatedIncidentTicket?: string;
   relatedWorkOrderNumber?: string;
   affectedBookingIds?: string[];
+  affectedBookings?: string[];
   createdAt?: string;
+  incidentId?: string;
+  workOrderId?: string;
+  isExamAffected?: boolean;
+  alternativeRoomSuggestion?: {
+    roomCode: string;
+    roomName: string;
+    capacity: number;
+    equipment: string[];
+    suitabilityScore: number;
+  };
 }
 
 export interface RoomRecommendation {
@@ -249,7 +416,6 @@ export interface RoomRecommendation {
   isNearby: boolean;
   capacityFitPercent: number;
 }
-
 
 export type InsightType = 'repeated-complaint' | 'maintenance-risk' | 'low-stock' | 'room-conflict';
 
@@ -288,6 +454,8 @@ export interface ApprovalRequest {
   id: string;
   title: string;
   category: string;
+  requestType?: 'procurement' | 'room_booking' | 'room_relocation' | 'general';
+  requesterId?: string;
   requesterName: string;
   requesterRole: string;
   department: string;
@@ -296,6 +464,9 @@ export interface ApprovalRequest {
   status: ApprovalStatus;
   submittedAt: string;
   reason: string;
+  entityId?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
 }
 
 export interface Building {
@@ -303,16 +474,18 @@ export interface Building {
   name: string;
   shortName: string;
   code: string;
-  category: 'Academic' | 'Administrative' | 'Residential' | 'Facility';
+  category: 'Academic' | 'Administrative' | 'Residential' | 'Facility' | 'Service' | 'Sports';
   openIncidents: number;
   activeWorkOrders: number;
   healthScore: number;
   floors: string;
   status: 'optimal' | 'warning' | 'alert';
   position: [number, number, number]; // 3D coordinates
+  blenderObject?: string;
+  aliases?: string[];
 }
 
-export type CampusRole =
+export type OfficialAppRole =
   | 'student_faculty'
   | 'technician'
   | 'department_manager'
@@ -320,30 +493,105 @@ export type CampusRole =
   | 'procurement_approver'
   | 'system_administrator';
 
+export type CampusRole = OfficialAppRole;
+
+export type LegacyAppRole = 'coo' | 'director' | 'engineer' | 'liaison';
+
 export type LegacyRole =
+  | 'coo'
+  | 'director'
+  | 'engineer'
   | 'Chief Operations Officer'
   | 'Director of Facilities'
   | 'Lead Maintenance Engineer'
   | 'Student Affairs Liaison';
 
+export type AppRole = OfficialAppRole | LegacyAppRole;
+
 export interface UserProfile {
   id: string;
   name: string;
-  role: CampusRole | LegacyRole;
+  fullName?: string;
+  role: CampusRole | LegacyRole | string;
   email: string;
-  avatar: string;
+  avatar?: string;
+  avatarUrl?: string;
   department: string;
+  departmentId?: string;
+  isActive?: boolean;
 }
 
-export function normalizeCampusRole(role?: string): CampusRole {
-  if (!role) return 'student_faculty';
-  const r = role.toLowerCase().trim();
-  if (r.includes('student') || r.includes('liaison') || r.includes('faculty')) return 'student_faculty';
-  if (r.includes('tech') || r.includes('engineer') || r.includes('maintenance')) return 'technician';
-  if (r.includes('dept') || r.includes('department') || r.includes('manager')) return 'department_manager';
-  if (r.includes('facil') || r.includes('director') || r.includes('coo') || r.includes('operations officer')) return 'facilities_administrator';
-  if (r.includes('procur') || r.includes('finance') || r.includes('approv')) return 'procurement_approver';
-  if (r.includes('system') || r.includes('sysadmin') || r.includes('admin')) return 'system_administrator';
-  return 'student_faculty';
+// ─── PHASE 2.6: INTELLIGENT CLASSROOM OCCUPANCY ──────────────────────────────
+export type OccupancyStatus = 
+  | 'occupied' 
+  | 'scheduled' 
+  | 'available' 
+  | 'unknown' 
+  | 'under_maintenance';
+
+export type OccupancyDataSource = 
+  | 'faculty_checkin' 
+  | 'timetable' 
+  | 'booking' 
+  | 'sensor_iot' 
+  | 'manual_inspection';
+
+export interface ClassroomOccupancy {
+  id: string;
+  roomCode: string;
+  roomName: string;
+  buildingId: string;
+  buildingCode: string;
+  buildingName: string;
+  floor: number;
+  capacity: number;
+  equipment: string[];
+  status: OccupancyStatus;
+  dataSource: OccupancyDataSource;
+  confidenceLevel: 'high' | 'medium' | 'low';
+  lastUpdated: string;
+  currentClass?: {
+    courseCode: string;
+    courseName: string;
+    facultyName: string;
+    startTime: string;
+    endTime: string;
+    isCheckedIn: boolean;
+    expectedStudents: number;
+  };
+  upcomingClasses: {
+    courseCode: string;
+    courseName: string;
+    facultyName: string;
+    startTime: string;
+    endTime: string;
+  }[];
+  maintenanceIssue?: string;
+  sensorMeta?: {
+    sensorId: string;
+    sensorType: string;
+    occupancyValue: string;
+    lastSignalAt: string;
+    connectionStatus: 'online' | 'standby' | 'offline';
+  };
 }
 
+export interface SensorDevice {
+  id: string;
+  sensorId: string;
+  roomId: string;
+  roomCode: string;
+  sensorType: 'pir' | 'mmwave_radar' | 'ble_beacon' | 'esp32_gateway';
+  occupancyValue: 'motion_detected' | 'vacant' | 'offline';
+  lastSignalAt: string;
+  connectionStatus: 'online' | 'standby' | 'offline';
+  hardwareSpecs: string;
+}
+
+export interface SmartFinderCriteria {
+  buildingCode?: string;
+  floor?: number;
+  minCapacity?: number;
+  requiredEquipment?: string[];
+  timeSlot?: string;
+}

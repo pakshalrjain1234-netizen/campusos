@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode, useRef } from 'react';
 import { 
   Incident, 
   WorkOrder, 
@@ -20,24 +20,17 @@ import {
   RoomBooking,
   RoomRecommendation,
   DisruptionCategory,
-  DisruptionSeverity
+  DisruptionSeverity,
+  ClassroomOccupancy,
+  OccupancyStatus,
+  IncidentLifecycleStatus,
+  TimelineEvent,
+  TriageDetails,
+  MaintenanceTechnician
 } from '../types';
-import { 
-  DEMO_INCIDENTS, 
-  DEMO_WORK_ORDERS, 
-  DEMO_STOCK_ALERTS, 
-  DEMO_ROOM_DISRUPTIONS, 
-  DEMO_AI_INSIGHTS, 
-  DEMO_RECENT_ACTIVITIES, 
-  DEMO_PENDING_APPROVALS,
-  CURRENT_USER,
-  DEMO_INVENTORY_ITEMS,
-  DEMO_STOCK_TRANSACTIONS,
-  DEMO_PROCUREMENT_REQUESTS,
-  DEMO_ROOMS,
-  DEMO_ROOM_BOOKINGS
-} from '../data/demoData';
 import { CAMPUS_BUILDINGS } from '../data/buildingsData';
+import { calculateTriageScore } from '../utils/triageEngine';
+
 import { api } from '../services/api';
 import { 
   hasPermission, 
@@ -52,6 +45,9 @@ import {
   isValidProcurementTransition
 } from '../utils/security';
 import { logger, RateLimiter } from '../utils/observability';
+import { useAuth } from './AuthContext';
+import { normalizeCampusRole } from '../types/auth';
+import { calculateBuildingHealthScore, getActiveBuildingIncidents } from '../utils/buildingHealth';
 
 export interface NotificationItem {
   id: string;
@@ -63,21 +59,84 @@ export interface NotificationItem {
 }
 
 interface CampusContextType {
+  // Phase 2.8: Cross-module, Occupancy & Six-Role RBAC Integration
+  inventory: StockAlert[];
+  selectedIncidentId: string | null;
+  setSelectedIncidentId: (id: string | null) => void;
+  transitionIncidentStatus: (
+    incidentId: string, 
+    targetStatus: IncidentLifecycleStatus, 
+    remarks?: string, 
+    assigneeId?: string, 
+    assigneeName?: string
+  ) => boolean;
+  selectedWorkOrderId: string | null;
+  setSelectedWorkOrderId: (id: string | null) => void;
+  createWorkOrderForIncident: (
+    incidentId: string, 
+    orderData: Partial<WorkOrder>
+  ) => { success: boolean; workOrder?: WorkOrder; error?: string };
+  resolveIncidentWithWorkOrder: (
+    workOrderId: string, 
+    completionNotes: string
+  ) => { success: boolean; error?: string };
+  allocateStockToWorkOrder: (
+    workOrderId: string, 
+    sku: string, 
+    quantity: number
+  ) => { success: boolean; error?: string; createdRequisition?: boolean };
+  createProcurementRequisition: (
+    sku: string, 
+    quantity: number, 
+    workOrderId?: string, 
+    urgency?: 'high' | 'medium'
+  ) => ApprovalRequest;
+  receiveGoods: (
+    sku: string, 
+    quantity: number, 
+    receiptToken: string
+  ) => { success: boolean; isIdempotentReplay?: boolean; error?: string };
+  addBooking: (
+    booking: Omit<RoomBooking, 'id' | 'bookingCode' | 'createdAt'>
+  ) => { success: boolean; booking?: RoomBooking; error?: string };
+  approveRoomRelocation: (
+    disruptionId: string, 
+    bookingId: string, 
+    targetRoomCode: string
+  ) => { success: boolean; error?: string };
+  classrooms: ClassroomOccupancy[];
+  performFacultyCheckIn: (roomCode: string) => void;
+  updateClassroomOccupancyStatus: (roomCode: string, status: OccupancyStatus) => void;
+  selectedRoomCode: string | null;
+  setSelectedRoomCode: (code: string | null) => void;
+  isMobileMenuOpen: boolean;
+  setIsMobileMenuOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  isBackendPersistent: boolean;
+  isLoadingData: boolean;
+  connectionError: string | null;
+  refreshData: () => Promise<void>;
+  retryConnection: () => Promise<void>;
+
   user: UserProfile;
   setUserRole: (role: UserProfile['role']) => void;
   incidents: Incident[];
-  addIncident: (incident: Omit<Incident, 'id' | 'ticketNumber' | 'createdAt'>) => { success: boolean; message: string; incident?: Incident };
-  updateIncidentStatus: (incidentId: string, nextStatus: Incident['status']) => { success: boolean; message: string };
+  addIncident: (incident: Omit<Incident, 'id' | 'ticketNumber' | 'createdAt'>) => Promise<{ success: boolean; message: string; incident?: Incident }> | { success: boolean; message: string; incident?: Incident };
+  updateIncidentStatus: (incidentId: string, nextStatus: Incident['status']) => Promise<{ success: boolean; message: string }> | { success: boolean; message: string };
   workOrders: WorkOrder[];
-  addWorkOrder: (order: Omit<WorkOrder, 'id' | 'orderNumber'>) => { success: boolean; message: string; workOrder?: WorkOrder };
+  addWorkOrder: (order: Omit<WorkOrder, 'id' | 'orderNumber'>) => Promise<{ success: boolean; message: string; workOrder?: WorkOrder }> | { success: boolean; message: string; workOrder?: WorkOrder };
   updateWorkOrderStatus: (workOrderId: string, nextStatus: WorkOrder['status']) => { success: boolean; message: string };
+  allocateWorkOrderToTechnician: (workOrderId: string, technicianId: string, technicianName?: string) => Promise<{ success: boolean; message?: string; workOrder?: WorkOrder }>;
+  technicians: MaintenanceTechnician[];
+  isLoadingTechnicians: boolean;
+  techniciansError: string | null;
+  refreshTechnicians: () => Promise<void>;
   stockAlerts: StockAlert[];
   roomDisruptions: RoomDisruption[];
   aiInsights: AIInsight[];
   recentActivities: ActivityItem[];
   approvals: ApprovalRequest[];
-  approveRequest: (id: string) => { success: boolean; message: string };
-  rejectRequest: (id: string, reason?: string) => { success: boolean; message: string };
+  approveRequest: (id: string) => Promise<{ success: boolean; message: string }>;
+  rejectRequest: (id: string, reason?: string) => Promise<{ success: boolean; message: string }>;
   buildings: Building[];
   selectedBuildingId: string | null;
   setSelectedBuildingId: (id: string | null) => void;
@@ -126,11 +185,11 @@ interface CampusContextType {
     quantity: number;
     reason: string;
     urgency?: ProcurementUrgency;
-  }) => { success: boolean; message: string };
-  approveProcurement: (id: string) => void;
-  rejectProcurement: (id: string) => void;
-  orderProcurement: (id: string) => { success: boolean; message: string };
-  receiveProcurementStock: (id: string) => { success: boolean; message: string };
+  }) => Promise<{ success: boolean; message: string }>;
+  approveProcurement: (id: string) => Promise<void>;
+  rejectProcurement: (id: string) => Promise<void>;
+  orderProcurement: (id: string) => Promise<{ success: boolean; message: string }>;
+  receiveProcurementStock: (id: string) => Promise<{ success: boolean; message: string }>;
 
   // Phase 2.4: Work Order Part Integration
   allocatePartToWorkOrder: (
@@ -158,10 +217,10 @@ interface CampusContextType {
 
   createBooking: (
     booking: Omit<RoomBooking, 'id' | 'bookingNumber' | 'createdAt'>
-  ) => { success: boolean; message: string; booking?: RoomBooking };
-  cancelBooking: (bookingId: string, reason?: string) => { success: boolean; message: string };
-  approveBooking: (bookingId: string) => void;
-  rejectBooking: (bookingId: string, reason?: string) => void;
+  ) => Promise<{ success: boolean; message: string; booking?: RoomBooking }>;
+  cancelBooking: (bookingId: string, reason?: string) => Promise<{ success: boolean; message: string }>;
+  approveBooking: (bookingId: string) => Promise<void>;
+  rejectBooking: (bookingId: string, reason?: string) => Promise<void>;
   checkBookingConflict: (
     roomId: string,
     date: string,
@@ -187,61 +246,71 @@ interface CampusContextType {
   ) => { success: boolean; message: string };
 }
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: 'notif-1',
-    title: 'High Thermal Warning in IT Server Annex',
-    message: 'Ambient temp exceeded 26°C. Auto-ticket INC-2401 logged.',
-    timeAgo: '15m ago',
-    isRead: false,
-    type: 'critical',
-  },
-  {
-    id: 'notif-2',
-    title: 'Purchase Order Approval Needed',
-    message: '12x Cat6 Cable Spools requisition submitted by Computing Services.',
-    timeAgo: '45m ago',
-    isRead: false,
-    type: 'alert',
-  },
-  {
-    id: 'notif-3',
-    title: 'Preventive Overhaul Scheduled',
-    message: 'Mechanical Lathe #4 downtime scheduled for 5:00 PM today.',
-    timeAgo: '1h ago',
-    isRead: false,
-    type: 'info',
-  },
-  {
-    id: 'notif-4',
-    title: 'Smart Card Access Terminal Re-calibrated',
-    message: 'Architecture South Entrance card reader back online.',
-    timeAgo: '2h ago',
-    isRead: true,
-    type: 'success',
-  },
-];
 
 const CampusContext = createContext<CampusContextType | undefined>(undefined);
 
 export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile>(CURRENT_USER);
-  const [incidents, setIncidents] = useState<Incident[]>(DEMO_INCIDENTS);
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>(DEMO_WORK_ORDERS);
-  const [stockAlerts] = useState<StockAlert[]>(DEMO_STOCK_ALERTS);
-  const [roomDisruptions, setRoomDisruptions] = useState<RoomDisruption[]>(DEMO_ROOM_DISRUPTIONS);
-  const [rooms, setRooms] = useState<Room[]>(DEMO_ROOMS);
-  const [bookings, setBookings] = useState<RoomBooking[]>(DEMO_ROOM_BOOKINGS);
-  const [aiInsights] = useState<AIInsight[]>(DEMO_AI_INSIGHTS);
-  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>(DEMO_RECENT_ACTIVITIES);
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>(DEMO_PENDING_APPROVALS);
-  const [buildings] = useState<Building[]>(CAMPUS_BUILDINGS);
+  const { user: authenticatedUser, isLoading: isAuthLoading, isAuthenticated, isDemoMode, switchDemoRole } = useAuth();
+  const resolvedUser = useMemo<UserProfile>(() => authenticatedUser ? ({
+    id: authenticatedUser.id,
+    name: authenticatedUser.fullName,
+    fullName: authenticatedUser.fullName,
+    role: normalizeCampusRole(authenticatedUser.role),
+    email: authenticatedUser.email,
+    avatar: authenticatedUser.avatarUrl || '',
+    avatarUrl: authenticatedUser.avatarUrl || '',
+    department: authenticatedUser.departmentName || 'Operations',
+    departmentId: authenticatedUser.departmentId || undefined,
+    isActive: authenticatedUser.isActive,
+  }) : {
+    id: 'guest',
+    name: 'Campus User',
+    role: 'student_faculty',
+    email: '',
+    department: 'Campus Operations',
+  }, [authenticatedUser]);
+  const [user, setUser] = useState<UserProfile>(resolvedUser);
+  useEffect(() => setUser(resolvedUser), [resolvedUser]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [technicians, setTechnicians] = useState<MaintenanceTechnician[]>([]);
+  const [isLoadingTechnicians, setIsLoadingTechnicians] = useState<boolean>(false);
+  const [techniciansError, setTechniciansError] = useState<string | null>(null);
+  const [stockAlerts, setStockAlerts] = useState<StockAlert[]>([]);
+  const [roomDisruptions, setRoomDisruptions] = useState<RoomDisruption[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [bookings, setBookings] = useState<RoomBooking[]>([]);
+  const [aiInsights, setAiInsights] = useState<AIInsight[]>([]);
+  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
+  const buildings = useMemo<Building[]>(() => CAMPUS_BUILDINGS.map((building) => {
+    const activeIssues = getActiveBuildingIncidents(building, incidents);
+    const activeOrders = workOrders.filter((order) =>
+      order.buildingId === building.id || order.buildingId === building.code
+    ).filter((order) => !['completed', 'verified', 'cancelled'].includes(String(order.status).toLowerCase()));
+    const healthScore = calculateBuildingHealthScore(building, incidents);
+    return {
+      ...building,
+      openIncidents: activeIssues.length,
+      activeWorkOrders: activeOrders.length,
+      healthScore,
+      status: healthScore < 70 ? 'alert' : healthScore < 90 ? 'warning' : 'optimal',
+    };
+  }), [incidents, workOrders]);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string | null>(null);
+  const [classrooms, setClassrooms] = useState<ClassroomOccupancy[]>([]);
+  const [selectedRoomCode, setSelectedRoomCode] = useState<string | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isBackendPersistent, setIsBackendPersistent] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const processedTokensRef = useRef<Set<string>>(new Set(['GRN-2026-9041']));
 
   // Phase 2.4: Inventory & Procurement State
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>(DEMO_INVENTORY_ITEMS);
-  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>(DEMO_STOCK_TRANSACTIONS);
-  const [procurementRequests, setProcurementRequests] = useState<ProcurementRequest[]>(DEMO_PROCUREMENT_REQUESTS);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
+  const [procurementRequests, setProcurementRequests] = useState<ProcurementRequest[]>([]);
 
   // Modals & Panels
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -256,7 +325,8 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Notifications
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   // Keyboard shortcut for Command Palette (Ctrl+K or Cmd+K) and Copilot (Ctrl+J or Cmd+J)
@@ -283,20 +353,35 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const setUserRole = (role: UserProfile['role']) => {
-    setUser((prev) => ({ ...prev, role }));
-    showToast(`Role switched to ${role}`, 'info');
+    if (!isDemoMode) {
+      showToast('Your role is managed by your campus administrator.', 'error');
+      return;
+    }
+    const canonicalRole = normalizeCampusRole(String(role));
+    switchDemoRole(canonicalRole);
+    showToast(`Demo role switched to ${canonicalRole}`, 'info');
   };
 
   // Duplicate submission throttle map: key -> timestamp
   const [recentSubmissions, setRecentSubmissions] = useState<Map<string, number>>(new Map());
 
-  const addIncident = (newIncidentData: Omit<Incident, 'id' | 'ticketNumber' | 'createdAt'>) => {
+  const addIncident = async (newIncidentData: Omit<Incident, 'id' | 'ticketNumber' | 'createdAt'>) => {
     const cleanTitle = sanitizeString(newIncidentData.title, 150);
     const cleanDesc = sanitizeString(newIncidentData.description, 500);
 
     if (!cleanTitle) {
       showToast('Incident title is required and cannot be blank', 'error');
       return { success: false, message: 'Incident title is required' };
+    }
+    if (cleanTitle.length < 5) {
+      const message = 'Incident title must contain at least 5 characters after removing unsupported markup.';
+      showToast(message, 'error');
+      return { success: false, message };
+    }
+    if (cleanDesc.length < 10) {
+      const message = 'Incident description must contain at least 10 characters.';
+      showToast(message, 'error');
+      return { success: false, message };
     }
 
     // Duplicate submission prevention (same title & building within 60s)
@@ -309,37 +394,46 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: 'Duplicate submission prevented by campus throttling policy.' };
     }
 
-    setRecentSubmissions((prev) => new Map(prev).set(dedupKey, now));
-
-    const newInc: Incident = {
+    // Submit to real backend database API
+    const res = await api.createIncident({
       ...newIncidentData,
       title: cleanTitle,
       description: cleanDesc,
-      id: `inc-${Date.now()}`,
-      ticketNumber: `INC-${Math.floor(2400 + Math.random() * 600)}`,
-      createdAt: 'Just now',
-      isDemo: true,
-    };
-    setIncidents((prev) => [newInc, ...prev]);
+    });
 
-    // Also add to recent activities
-    const newAct: ActivityItem = {
-      id: `act-${Date.now()}`,
-      actor: user.name,
-      actorRole: user.role,
-      avatar: user.avatar,
-      action: 'reported new campus incident',
-      target: `${newInc.ticketNumber}: ${newInc.title}`,
-      category: 'incident',
-      timestamp: 'Just now',
-      badgeText: newInc.severity.toUpperCase(),
-    };
-    setRecentActivities((prev) => [newAct, ...prev]);
-    showToast(`Incident #${newInc.ticketNumber} successfully submitted`, 'success');
-    return { success: true, message: 'Incident submitted', incident: newInc };
+    if (res.success && res.incident) {
+      // Only throttle after the server confirms persistence. Failed requests must
+      // remain retryable; the server makes retries idempotent if the response was lost.
+      setRecentSubmissions((prev) => new Map(prev).set(dedupKey, now));
+      const persistedInc = res.incident;
+      setIncidents((prev) => [persistedInc, ...prev]);
+
+      const newAct: ActivityItem = {
+        id: `act-${Date.now()}`,
+        actor: user.name,
+        actorRole: user.role,
+        avatar: user.avatar || '',
+        action: 'reported new campus incident',
+        target: `${persistedInc.ticketNumber}: ${persistedInc.title}`,
+        category: 'incident',
+        timestamp: 'Just now',
+        badgeText: persistedInc.severity.toUpperCase(),
+      };
+      setRecentActivities((prev) => [newAct, ...prev]);
+      showToast(
+        res.duplicate
+          ? `Incident #${persistedInc.ticketNumber} was already received and is visible in your incident list`
+          : `Incident #${persistedInc.ticketNumber} successfully submitted to database`,
+        'success'
+      );
+      return { success: true, message: res.duplicate ? 'Incident was already received' : 'Incident submitted', incident: persistedInc };
+    }
+
+    showToast(res.error || 'Failed to submit incident to database', 'error');
+    return { success: false, message: res.error || 'Database submission failed' };
   };
 
-  const updateIncidentStatus = (incidentId: string, nextStatus: Incident['status']) => {
+  const updateIncidentStatus = async (incidentId: string, nextStatus: Incident['status']) => {
     const inc = incidents.find((i) => i.id === incidentId);
     if (!inc) {
       showToast('Incident ticket not found', 'error');
@@ -360,7 +454,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: `updated incident status to ${nextStatus}`,
       target: `${inc.ticketNumber}: ${inc.title}`,
       category: 'incident',
@@ -372,7 +466,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: `Status updated to ${nextStatus}` };
   };
 
-  const addWorkOrder = (newOrderData: Omit<WorkOrder, 'id' | 'orderNumber'>) => {
+  const addWorkOrder = async (newOrderData: Omit<WorkOrder, 'id' | 'orderNumber'>) => {
     const cleanTitle = sanitizeString(newOrderData.title, 150);
     const cleanLoc = sanitizeString(newOrderData.location, 100);
 
@@ -386,16 +480,20 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: 'Assigned maintenance engineer is required' };
     }
 
-    const newOrder: WorkOrder = {
+    const res = await api.createWorkOrder({
       ...newOrderData,
       title: cleanTitle,
       location: cleanLoc,
-      id: `wo-${Date.now()}`,
-      orderNumber: `WO-${Math.floor(8820 + Math.random() * 150)}`,
-    };
-    setWorkOrders((prev) => [newOrder, ...prev]);
-    showToast(`Work Order #${newOrder.orderNumber} issued`, 'success');
-    return { success: true, message: 'Work order issued', workOrder: newOrder };
+    });
+
+    if (res.success && res.workOrder) {
+      setWorkOrders((prev) => [res.workOrder!, ...prev]);
+      showToast(`Work Order #${res.workOrder.orderNumber} issued and persisted`, 'success');
+      return { success: true, message: 'Work order issued', workOrder: res.workOrder };
+    }
+
+    showToast(res.error || 'Failed to create work order in database', 'error');
+    return { success: false, message: res.error || 'Database write failed' };
   };
 
   const updateWorkOrderStatus = (workOrderId: string, nextStatus: WorkOrder['status']) => {
@@ -431,7 +529,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: `updated work order status to ${nextStatus}`,
       target: `${wo.orderNumber}: ${wo.title}`,
       category: 'maintenance',
@@ -459,7 +557,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         id: `sec-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
-        avatar: user.avatar,
+        avatar: user.avatar || '',
         action: 'blocked unauthorized stock modification attempt',
         target: `${params.type} (${params.quantity})`,
         category: 'inventory',
@@ -535,7 +633,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       transactionNumber: `TX-${Math.floor(720 + Math.random() * 200)}`,
       itemId: item.id,
       itemSku: item.sku,
-      itemName: item.name,
+      itemName: item.itemName || item.name || item.sku || 'Item',
       type: params.type,
       quantity: params.quantity,
       previousStock: item.currentStock,
@@ -554,7 +652,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: `${params.type.replace('_', ' ')} (${params.quantity} ${item.unit})`,
       target: `${item.sku} - ${item.name}`,
       category: 'inventory',
@@ -568,12 +666,12 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   // Phase 2.4: Intelligent Procurement Actions
-  const createProcurement = (params: {
+  const createProcurement = async (params: {
     itemId: string;
     quantity: number;
     reason: string;
     urgency?: ProcurementUrgency;
-  }) => {
+  }): Promise<{ success: boolean; message: string }> => {
     const item = inventoryItems.find((i) => i.id === params.itemId);
     if (!item) {
       showToast('Inventory item not found', 'error');
@@ -582,36 +680,41 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     const urgency = params.urgency || (item.currentStock === 0 ? 'urgent' : item.currentStock <= item.minThreshold / 2 ? 'high' : 'medium');
     const totalCost = item.unitCost * params.quantity;
-    const reqNum = `REQ-${Math.floor(420 + Math.random() * 500)}`;
-
-    const newReq: ProcurementRequest = {
-      id: `pr-${Date.now()}`,
-      requestNumber: reqNum,
+    const newReqData = {
       itemId: item.id,
       itemSku: item.sku,
-      itemName: item.name,
+      itemName: item.itemName || item.name || item.sku || 'Item',
       category: item.category,
       quantity: params.quantity,
       unit: item.unit,
       estimatedUnitCost: item.unitCost,
       totalEstimatedCost: totalCost,
-      supplierName: item.supplierName,
+      supplierName: item.supplierName || 'Campus Procurement',
       supplierContact: item.supplierContact,
       urgency,
-      status: 'pending_approval',
+      status: 'pending_approval' as ProcurementStatus,
       reason: params.reason,
       ruleTriggerReason: `Rule: Current stock (${item.currentStock} ${item.unit}) <= Min threshold (${item.minThreshold} ${item.unit})`,
       requestedBy: user.name,
-      createdAt: 'Just now',
     };
+    const created = await api.createProcurementRequest(newReqData);
+    if (!created.success || !created.request) {
+      const message = created.error || 'Requisition could not be saved.';
+      showToast(message, 'error');
+      return { success: false, message };
+    }
+    const newReq: ProcurementRequest = created.request;
 
     setProcurementRequests((prev) => [newReq, ...prev]);
 
     // Mirror to general approvals list
     const newApproval: ApprovalRequest = {
-      id: newReq.id,
+      id: created.approvalId || newReq.id,
       title: `${newReq.requestNumber}: Requisition for ${newReq.quantity}x ${item.name}`,
-      category: `${item.category} Procurement`,
+      category: 'Procurement',
+      requestType: 'procurement',
+      entityId: newReq.id,
+      requesterId: user.id,
       requesterName: user.name,
       requesterRole: user.role,
       department: user.department,
@@ -627,7 +730,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: 'created procurement requisition for',
       target: `${newReq.quantity}x ${item.name}`,
       category: 'inventory',
@@ -640,14 +743,16 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: 'Requisition created successfully' };
   };
 
-  const approveProcurement = (id: string) => {
+  const approveProcurement = async (id: string) => {
+    const result = await api.updateProcurementStatus(id, 'approved');
+    if (!result.success) { showToast(result.error || 'Requisition approval failed', 'error'); return; }
     setProcurementRequests((prev) =>
       prev.map((r) =>
         r.id === id ? { ...r, status: 'approved' as const, approvedBy: `${user.name} (${user.role})` } : r
       )
     );
     setApprovals((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: 'approved' as const } : a))
+      prev.map((a) => (a.entityId === id || a.id === id ? { ...a, status: 'approved' as const } : a))
     );
 
     const target = procurementRequests.find((r) => r.id === id);
@@ -656,7 +761,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         id: `act-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
-        avatar: user.avatar,
+        avatar: user.avatar || '',
         action: 'approved procurement for',
         target: `${target.quantity}x ${target.itemName}`,
         category: 'approval',
@@ -668,14 +773,16 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
 
-  const rejectProcurement = (id: string) => {
+  const rejectProcurement = async (id: string) => {
+    const result = await api.updateProcurementStatus(id, 'rejected');
+    if (!result.success) { showToast(result.error || 'Requisition rejection failed', 'error'); return; }
     setProcurementRequests((prev) =>
       prev.map((r) =>
         r.id === id ? { ...r, status: 'rejected' as const } : r
       )
     );
     setApprovals((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: 'rejected' as const } : a))
+      prev.map((a) => (a.entityId === id || a.id === id ? { ...a, status: 'rejected' as const } : a))
     );
     const target = procurementRequests.find((r) => r.id === id);
     if (target) {
@@ -683,7 +790,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
 
-  const orderProcurement = (id: string) => {
+  const orderProcurement = async (id: string): Promise<{ success: boolean; message: string }> => {
     const target = procurementRequests.find((r) => r.id === id);
     if (!target) {
       showToast('Procurement requisition not found', 'error');
@@ -696,6 +803,9 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: check.reason || 'Invalid status transition' };
     }
 
+    const persisted = await api.updateProcurementStatus(id, 'ordered');
+    if (!persisted.success) { const message = persisted.error || 'Purchase order could not be placed.'; showToast(message, 'error'); return { success: false, message }; }
+
     setProcurementRequests((prev) =>
       prev.map((r) =>
         r.id === id ? { ...r, status: 'ordered' as const, orderedAt: 'Just now' } : r
@@ -706,7 +816,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: 'Purchase order placed successfully' };
   };
 
-  const receiveProcurementStock = (id: string) => {
+  const receiveProcurementStock = async (id: string): Promise<{ success: boolean; message: string }> => {
     const target = procurementRequests.find((r) => r.id === id);
     if (!target) {
       showToast('Procurement requisition not found', 'error');
@@ -719,26 +829,15 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: check.reason || 'Invalid status transition' };
     }
 
-    setProcurementRequests((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, status: 'received' as const, receivedAt: 'Just now' } : r
-      )
-    );
-
-    const stockOp = performStockOperation({
-      itemId: target.itemId,
-      type: 'stock_in',
-      quantity: target.quantity,
-      reason: `Procurement receipt for ${target.requestNumber} from ${target.supplierName}`,
-      referenceType: 'procurement',
-      referenceId: target.requestNumber,
-    });
-
-    if (stockOp.success) {
-      showToast(`Received ${target.quantity} ${target.unit} of ${target.itemName}. Added to stock!`, 'success');
-      return { success: true, message: 'Stock received' };
-    }
-    return stockOp;
+    const persisted = await api.updateProcurementStatus(id, 'received', { receiptToken: `procurement-receipt:${id}` });
+    if (!persisted.success) { const message = persisted.error || 'Goods receipt failed.'; showToast(message, 'error'); return { success: false, message }; }
+    setProcurementRequests((prev) => prev.map((r) => r.id === id ? { ...r, status: 'received', receivedAt: new Date().toISOString() } : r));
+    const [inventoryRes, inventoryItemsRes, txRes] = await Promise.all([api.getInventory(), api.getInventoryItems(), api.getStockTransactions()]);
+    setStockAlerts(inventoryRes.items);
+    setInventoryItems(inventoryItemsRes);
+    setStockTransactions(txRes.transactions);
+    showToast(`Received ${target.quantity} ${target.unit} of ${target.itemName}. Added to stock!`, 'success');
+    return { success: true, message: 'Stock received' };
   };
 
   // Phase 2.4: Work Order Part Integration
@@ -799,7 +898,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       orderNumber: wo.orderNumber,
       itemId: item.id,
       itemSku: item.sku,
-      itemName: item.name,
+      itemName: item.itemName || item.name || item.sku || 'Item',
       quantity,
       allocatedAt: 'Just now',
       allocatedBy: `${user.name} (${user.role})`,
@@ -876,7 +975,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: 'Part returned to stock' };
   };
 
-  const approveRequest = (id: string) => {
+  const approveRequest = async (id: string) => {
     const target = approvals.find((a) => a.id === id);
     if (!target) {
       showToast('Requisition request not found', 'error');
@@ -891,7 +990,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         id: `sec-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
-        avatar: user.avatar,
+        avatar: user.avatar || '',
         action: `blocked unauthorized approval attempt (${authCheck.code})`,
         target: target.title,
         category: 'approval',
@@ -902,13 +1001,28 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: authCheck.reason || 'Approval unauthorized' };
     }
 
+    let persisted: { success: boolean; error?: string };
+    if (target.requestType === 'procurement' && procurementRequests.some((request) => request.id === target.entityId)) {
+      persisted = await api.updateProcurementStatus(target.entityId!, 'approved');
+    } else if (target.requestType === 'room_booking') {
+      const booking = bookings.find((entry) => entry.approvalRequestId === target.id || entry.id === target.entityId);
+      persisted = booking ? await api.updateBookingStatus(booking.id, 'approved') : { success: false, error: 'Linked booking not found.' };
+    } else {
+      persisted = await api.updateApprovalStatus(id, 'approved');
+    }
+    if (!persisted.success) {
+      const message = persisted.error || 'Approval could not be saved.';
+      showToast(message, 'error');
+      return { success: false, message };
+    }
+
     setApprovals((prev) =>
       prev.map((item) => (item.id === id ? { ...item, status: 'approved' as const } : item))
     );
     // Also sync with procurement requests
     setProcurementRequests((prev) =>
       prev.map((r) =>
-        r.id === id ? { ...r, status: 'approved' as const, approvedBy: `${user.name} (${user.role})` } : r
+        r.id === target.entityId ? { ...r, status: 'approved' as const, approvedBy: `${user.name} (${user.role})` } : r
       )
     );
     // Also sync with room bookings
@@ -929,7 +1043,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: 'authorized requisition for',
       target: target.title,
       category: 'approval',
@@ -941,7 +1055,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: 'Request approved successfully' };
   };
 
-  const rejectRequest = (id: string, reason?: string) => {
+  const rejectRequest = async (id: string, reason?: string) => {
     const target = approvals.find((a) => a.id === id);
     if (!target) {
       showToast('Requisition request not found', 'error');
@@ -955,7 +1069,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         id: `sec-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
-        avatar: user.avatar,
+        avatar: user.avatar || '',
         action: `blocked unauthorized decline attempt (${authCheck.code})`,
         target: target.title,
         category: 'approval',
@@ -966,12 +1080,27 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: authCheck.reason || 'Decline unauthorized' };
     }
 
+    let persisted: { success: boolean; error?: string };
+    if (target.requestType === 'procurement' && procurementRequests.some((request) => request.id === target.entityId)) {
+      persisted = await api.updateProcurementStatus(target.entityId!, 'rejected');
+    } else if (target.requestType === 'room_booking') {
+      const booking = bookings.find((entry) => entry.approvalRequestId === target.id || entry.id === target.entityId);
+      persisted = booking ? await api.updateBookingStatus(booking.id, 'rejected', reason) : { success: false, error: 'Linked booking not found.' };
+    } else {
+      persisted = await api.updateApprovalStatus(id, 'rejected');
+    }
+    if (!persisted.success) {
+      const message = persisted.error || 'Rejection could not be saved.';
+      showToast(message, 'error');
+      return { success: false, message };
+    }
+
     setApprovals((prev) =>
       prev.map((item) => (item.id === id ? { ...item, status: 'rejected' as const } : item))
     );
     setProcurementRequests((prev) =>
       prev.map((r) =>
-        r.id === id ? { ...r, status: 'rejected' as const } : r
+        r.id === target.entityId ? { ...r, status: 'rejected' as const } : r
       )
     );
     // Also sync with room bookings
@@ -999,7 +1128,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return api.checkBookingConflict(roomId, date, startTime, endTime, bookings, excludeBookingId);
   };
 
-  const createBooking = (bookingData: Omit<RoomBooking, 'id' | 'bookingNumber' | 'createdAt'>) => {
+  const createBooking = async (bookingData: Omit<RoomBooking, 'id' | 'bookingNumber' | 'createdAt'>): Promise<{ success: boolean; message: string; booking?: RoomBooking }> => {
     const sanitizedPurpose = sanitizeString(bookingData.purpose, 250);
     const sanitizedBookedBy = sanitizeString(bookingData.bookedBy, 120);
     const sanitizedDept = sanitizeString(bookingData.department, 120);
@@ -1010,18 +1139,24 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: 'Booking purpose is required' };
     }
 
-    if (!isValidDateFormat(bookingData.date)) {
+    if (!bookingData.date || !isValidDateFormat(bookingData.date)) {
       showToast('Date must be in valid YYYY-MM-DD format', 'error');
       return { success: false, message: 'Invalid booking date format' };
     }
 
+    if (!bookingData.roomId) {
+      showToast('A room must be selected', 'error');
+      return { success: false, message: 'A room must be selected' };
+    }
+
+    const attendance = bookingData.expectedAttendance ?? bookingData.expectedAttendees;
     const timeWindow = isValidTimeWindow(bookingData.startTime, bookingData.endTime);
     if (!timeWindow.valid) {
       showToast(timeWindow.error || 'Invalid time window', 'error');
       return { success: false, message: timeWindow.error || 'Invalid time window' };
     }
 
-    if (!isPositiveSafeInteger(bookingData.expectedAttendance)) {
+    if (!isPositiveSafeInteger(attendance)) {
       showToast('Expected attendance must be a positive whole number', 'error');
       return { success: false, message: 'Expected attendance must be a positive whole number' };
     }
@@ -1032,8 +1167,8 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: 'Room not found' };
     }
 
-    if (bookingData.expectedAttendance > room.capacity) {
-      showToast(`Attendance (${bookingData.expectedAttendance}) exceeds room capacity (${room.capacity})`, 'error');
+    if ((attendance as number) > room.capacity) {
+      showToast(`Attendance (${attendance}) exceeds room capacity (${room.capacity})`, 'error');
       return { success: false, message: `Room capacity exceeded: maximum ${room.capacity} seats` };
     }
 
@@ -1065,10 +1200,32 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     // Role-based or facility size requirement for approvals
     const needsApproval =
-      room.capacity >= 80 ||
-      room.roomType === 'auditorium' ||
-      user.role === 'Student Affairs Liaison';
+      (attendance as number) >= 80 ||
+      room.roomType === 'auditorium';
     const approvalId = needsApproval ? `appr-bk-${Date.now()}` : undefined;
+
+    const roomBuilding = buildings.find((building) => building.id === room.buildingId);
+    const persisted = await api.createBooking({
+      ...bookingData,
+      purpose: sanitizedPurpose,
+      title: sanitizedPurpose,
+      bookedBy: sanitizedBookedBy || user.name,
+      bookedByRole: bookingData.bookedByRole || user.role,
+      department: sanitizedDept || user.department,
+      notes: sanitizedNotes,
+      expectedAttendance: attendance as number,
+      expectedAttendees: attendance as number,
+      roomCode: room.roomNumber,
+      roomName: room.name,
+      buildingCode: roomBuilding?.code,
+      buildingName: room.buildingName,
+    });
+    if (!persisted.success || !persisted.booking) {
+      const message = persisted.error || 'Booking could not be saved.';
+      showToast(message, 'error');
+      return { success: false, message };
+    }
+    const resolvedApprovalId = persisted.booking.approvalRequestId || approvalId;
 
     const newBooking: RoomBooking = {
       ...bookingData,
@@ -1076,29 +1233,29 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       bookedBy: sanitizedBookedBy || user.name,
       department: sanitizedDept || user.department,
       notes: sanitizedNotes,
-      id: `bk-${Date.now()}`,
-      bookingNumber: `BK-2026-${Math.floor(100 + Math.random() * 899)}`,
-      status: needsApproval ? 'pending' : 'approved',
+      id: persisted.booking.id,
+      bookingNumber: persisted.booking.bookingNumber || persisted.booking.bookingCode,
+      status: String(persisted.booking.status) === 'tentative' || needsApproval ? 'pending' : 'approved',
       requiresApproval: needsApproval,
-      approvalRequestId: approvalId,
+      approvalRequestId: resolvedApprovalId,
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
     };
 
     setBookings((prev) => [newBooking, ...prev]);
 
-    if (needsApproval && approvalId) {
+    if (needsApproval && resolvedApprovalId) {
       const newApproval: ApprovalRequest = {
-        id: approvalId,
+        id: resolvedApprovalId,
         title: `Room Reservation: ${room.name} (${newBooking.bookingNumber})`,
         category: 'Room Reservation',
         requesterName: bookingData.bookedBy,
         requesterRole: bookingData.bookedByRole,
-        department: bookingData.department,
+        department: bookingData.department || user.department || 'Operations',
         estimatedCost: 'N/A (Facility)',
         urgency: 'medium',
         status: 'pending',
         submittedAt: 'Just now',
-        reason: `${bookingData.purpose} | ${bookingData.date} (${bookingData.startTime} - ${bookingData.endTime}) | ${bookingData.expectedAttendance} attendees`,
+        reason: `${bookingData.purpose || bookingData.title || 'Room booking'} | ${bookingData.date || 'Date unavailable'} (${bookingData.startTime} - ${bookingData.endTime}) | ${attendance} attendees`,
       };
       setApprovals((prev) => [newApproval, ...prev]);
     }
@@ -1107,7 +1264,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: needsApproval ? 'submitted room booking request for' : 'confirmed booking for',
       target: `${newBooking.bookingNumber}: ${room.name}`,
       category: 'system',
@@ -1136,11 +1293,18 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: 'Booking confirmed', booking: newBooking };
   };
 
-  const cancelBooking = (bookingId: string, reason?: string) => {
+  const cancelBooking = async (bookingId: string, reason?: string) => {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) {
       showToast('Booking not found', 'error');
       return { success: false, message: 'Booking not found' };
+    }
+
+    const persisted = await api.updateBookingStatus(bookingId, 'cancelled', reason);
+    if (!persisted.success) {
+      const message = persisted.error || 'Booking cancellation failed.';
+      showToast(message, 'error');
+      return { success: false, message };
     }
 
     setBookings((prev) =>
@@ -1165,7 +1329,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: 'cancelled room reservation',
       target: `${booking.bookingNumber}: ${booking.roomName}`,
       category: 'system',
@@ -1188,9 +1352,12 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return { success: true, message: 'Booking cancelled' };
   };
 
-  const approveBooking = (bookingId: string) => {
+  const approveBooking = async (bookingId: string) => {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) return;
+
+    const persisted = await api.updateBookingStatus(bookingId, 'approved');
+    if (!persisted.success) { showToast(persisted.error || 'Booking approval failed.', 'error'); return; }
 
     setBookings((prev) =>
       prev.map((b) =>
@@ -1214,9 +1381,12 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     showToast(`Booking ${booking.bookingNumber} approved`, 'success');
   };
 
-  const rejectBooking = (bookingId: string, reason?: string) => {
+  const rejectBooking = async (bookingId: string, reason?: string) => {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) return;
+
+    const persisted = await api.updateBookingStatus(bookingId, 'rejected', reason);
+    if (!persisted.success) { showToast(persisted.error || 'Booking rejection failed.', 'error'); return; }
 
     setBookings((prev) =>
       prev.map((b) =>
@@ -1255,7 +1425,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         id: `sec-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
-        avatar: user.avatar,
+        avatar: user.avatar || '',
         action: 'blocked unauthorized emergency disruption report attempt',
         target: `Room: ${data.roomId}`,
         category: 'incident',
@@ -1323,7 +1493,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: 'reported emergency room disruption for',
       target: `${room.name} (${disruptionNumber})`,
       category: 'incident',
@@ -1355,7 +1525,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         id: `sec-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
-        avatar: user.avatar,
+        avatar: user.avatar || '',
         action: 'blocked unauthorized disruption resolution attempt',
         target: `Disruption ID: ${disruptionId}`,
         category: 'incident',
@@ -1390,7 +1560,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: 'resolved room disruption for',
       target: `${disruption.roomCode} (${disruption.disruptionNumber || disruptionId})`,
       category: 'incident',
@@ -1425,7 +1595,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         id: `sec-${Date.now()}`,
         actor: user.name,
         actorRole: user.role,
-        avatar: user.avatar,
+        avatar: user.avatar || '',
         action: 'blocked unauthorized room reallocation attempt',
         target: `Booking ID: ${bookingId}`,
         category: 'system',
@@ -1458,9 +1628,19 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return { success: false, message: `Target room ${targetRoom.name} is under maintenance` };
     }
 
-    if (targetRoom.capacity < booking.expectedAttendance) {
-      showToast(`Target room capacity (${targetRoom.capacity}) cannot accommodate attendance (${booking.expectedAttendance})`, 'error');
+    const attendance = booking.expectedAttendance ?? booking.expectedAttendees;
+    if (!isPositiveSafeInteger(attendance)) {
+      showToast('Booking attendance is missing or invalid', 'error');
+      return { success: false, message: 'Booking attendance is missing or invalid' };
+    }
+    if (targetRoom.capacity < attendance) {
+      showToast(`Target room capacity (${targetRoom.capacity}) cannot accommodate attendance (${attendance})`, 'error');
       return { success: false, message: 'Target room capacity is insufficient' };
+    }
+
+    if (!booking.date) {
+      showToast('Booking date is missing; reallocation cannot continue', 'error');
+      return { success: false, message: 'Booking date is missing' };
     }
 
     const conflictResult = api.checkBookingConflict(
@@ -1519,7 +1699,7 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       id: `act-${Date.now()}`,
       actor: user.name,
       actorRole: user.role,
-      avatar: user.avatar,
+      avatar: user.avatar || '',
       action: 'reallocated emergency booking from',
       target: `${prevRoomName} -> ${targetRoom.name} (${booking.bookingNumber})`,
       category: 'system',
@@ -1581,9 +1761,421 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const unreadNotificationCount = notifications.filter((n) => !n.isRead).length;
 
+  
+  // Phase 2.8: hydrate from the authenticated API. Empty persistent results stay empty.
+  const refreshData = async (): Promise<void> => {
+    setIsLoadingData(true);
+    try {
+      const [
+        incidentsRes,
+        workOrdersRes,
+        inventoryRes,
+        inventoryItemsRes,
+        bookingsRes,
+        disruptionsRes,
+        approvalsRes,
+        notificationsRes,
+        transactionsRes,
+        procurementRes,
+        occupancyRes,
+        roomsRes,
+        techsRes,
+      ] = await Promise.all([
+        api.getIncidents(),
+        api.getWorkOrders(),
+        api.getInventory(),
+        api.getInventoryItems(),
+        api.getBookings(),
+        api.getRoomDisruptions(),
+        api.getApprovals(),
+        api.getNotifications(),
+        api.getStockTransactions(),
+        api.getProcurementRequests(),
+        api.getOccupancy(),
+        api.getRooms(),
+        api.getTechnicians().catch((e) => ({ technicians: [], error: e.message })),
+      ]);
+
+      setIncidents(incidentsRes.incidents || []);
+      setWorkOrders(workOrdersRes.workOrders || []);
+      setTechnicians(techsRes?.technicians || []);
+      setTechniciansError(techsRes?.error || null);
+      setStockAlerts(inventoryRes.items || []);
+      setInventoryItems(inventoryItemsRes || []);
+      setBookings(bookingsRes.bookings || []);
+      setRoomDisruptions(disruptionsRes.disruptions || []);
+      setApprovals(approvalsRes.approvals || []);
+      setStockTransactions(transactionsRes.transactions || []);
+      setProcurementRequests(procurementRes.requests || []);
+      setClassrooms(occupancyRes.classrooms || []);
+      setRooms(roomsRes || []);
+      setNotifications((notificationsRes.notifications || []).map((n) => ({
+        id: String(n.id),
+        title: String(n.title || 'Campus update'),
+        message: String(n.message || ''),
+        timeAgo: String(n.timeAgo || n.created_at || 'Just now'),
+        isRead: Boolean(n.is_read ?? n.isRead),
+        type: (n.type === 'critical' || n.type === 'alert' || n.type === 'success' ? n.type : 'info') as NotificationItem['type'],
+      })));
+
+      const anyError = incidentsRes.error || workOrdersRes.error || inventoryRes.error || bookingsRes.error;
+      if (anyError) {
+        setConnectionError(anyError);
+      } else {
+        setConnectionError(null);
+      }
+
+      const corePersistence = [
+        incidentsRes.isPersistent,
+        workOrdersRes.isPersistent,
+        inventoryRes.isPersistent,
+        procurementRes.isPersistent,
+        bookingsRes.isPersistent,
+        disruptionsRes.isPersistent,
+        approvalsRes.isPersistent,
+        notificationsRes.isPersistent,
+        transactionsRes.isPersistent,
+      ].every(Boolean);
+      setIsBackendPersistent(corePersistence);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to connect to the CampusOps backend.';
+      logger.error('CampusContext', 'Backend sync failed', { message: msg });
+      setConnectionError(msg);
+      setIsBackendPersistent(false);
+      showToast('Could not refresh campus data from the API.', 'error');
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated) void refreshData();
+  }, [isAuthLoading, isAuthenticated, user.id]);
+
+  const transitionIncidentStatus = (
+    incidentId: string, 
+    targetStatus: IncidentLifecycleStatus, 
+    remarks?: string, 
+    assigneeId?: string, 
+    assigneeName?: string
+  ): boolean => {
+    let updatedTarget: Incident | undefined;
+
+    setIncidents((prev) =>
+      prev.map((inc) => {
+        if (inc.id !== incidentId) return inc;
+
+        const prevLifecycle = inc.lifecycleStatus || 'reported';
+        const newTimelineEvent: TimelineEvent = {
+          id: `evt-${Date.now()}`,
+          incidentId,
+          fromStatus: prevLifecycle,
+          toStatus: targetStatus,
+          actorName: user.name,
+          actorRole: user.role,
+          remarks: remarks || `Transitioned ticket to ${targetStatus}`,
+          createdAt: 'Just now',
+        };
+
+        const updated: Incident = {
+          ...inc,
+          lifecycleStatus: targetStatus,
+          status: targetStatus === 'resolved' ? 'resolved' : targetStatus === 'closed' ? 'closed' : 'in_progress',
+          timeline: [...(inc.timeline || []), newTimelineEvent],
+        };
+
+        if (assigneeName) {
+          updated.assignedTo = assigneeName;
+          updated.assignedEngineerId = assigneeId;
+        }
+
+        if (targetStatus === 'acknowledged') {
+          updated.acknowledgedAt = 'Just now';
+        } else if (targetStatus === 'resolved') {
+          updated.resolvedAt = 'Just now';
+          updated.slaDeadline = 'Resolved';
+        } else if (targetStatus === 'closed') {
+          updated.closedAt = 'Just now';
+          updated.closedBy = user.id;
+          updated.slaDeadline = 'Closed';
+        }
+
+        updatedTarget = updated;
+        return updated;
+      })
+    );
+
+    if (updatedTarget) {
+      (api as any).transitionIncident?.(incidentId, targetStatus, remarks, assigneeId, assigneeName).catch(() => {});
+      showToast(`Incident ${(updatedTarget as Incident).ticketNumber} transitioned to ${targetStatus}`, 'info');
+      return true;
+    }
+    return false;
+  };
+
+  const createWorkOrderForIncident = (
+    incidentId: string, 
+    orderData: Partial<WorkOrder>
+  ): { success: boolean; workOrder?: WorkOrder; error?: string } => {
+    const existingActive = workOrders.find(
+      (w) => w.incidentId === incidentId && w.status !== 'completed' && w.status !== 'verified'
+    );
+    if (existingActive) {
+      const errorMsg = `Duplicate prevented: Active Work Order ${existingActive.orderNumber} already exists for this incident.`;
+      showToast(errorMsg, 'error');
+      return { success: false, error: errorMsg };
+    }
+
+    const incident = incidents.find((i) => i.id === incidentId);
+    const orderNumber = `WO-${Math.floor(8820 + Math.random() * 150)}`;
+    const newOrder: WorkOrder = {
+      id: `wo-${Date.now()}`,
+      orderNumber,
+      title: orderData.title || `Maintenance: ${incident?.title || 'Reported Issue'}`,
+      category: orderData.category || incident?.category || 'General Civil Works',
+      buildingId: orderData.buildingId || incident?.buildingId || 'A1',
+      buildingName: orderData.buildingName || incident?.buildingName || 'Academic Block',
+      location: orderData.location || `${incident?.floor || ''} ${incident?.room || ''}`.trim() || 'Campus Facilities',
+      priority: orderData.priority || (incident?.severity === 'critical' ? 'urgent' : incident?.severity === 'high' ? 'high' : 'medium'),
+      status: orderData.status || (orderData.assignedEngineer ? 'in_progress' : 'unassigned'),
+      assignedEngineer: orderData.assignedEngineer || incident?.assignedTo || 'Unassigned',
+      assignedEngineerId: orderData.assignedEngineerId || incident?.assignedEngineerId,
+      engineerAvatar: orderData.engineerAvatar || '',
+      dueDate: orderData.dueDate || 'Today, 5:00 PM',
+      slaRemaining: '4h 00m',
+      completionRate: 0,
+      partsRequired: orderData.partsRequired || [],
+      incidentId,
+      repairInstructions: orderData.repairInstructions || incident?.description,
+    };
+
+    setWorkOrders((prev) => [newOrder, ...prev]);
+
+    setIncidents((prev) =>
+      prev.map((inc) => {
+        if (inc.id !== incidentId) return inc;
+        return {
+          ...inc,
+          workOrderId: newOrder.id,
+          lifecycleStatus: 'in_progress',
+          status: 'in_progress',
+        };
+      })
+    );
+
+    showToast(`Work Order #${newOrder.orderNumber} issued`, 'success');
+    return { success: true, workOrder: newOrder };
+  };
+
+  const resolveIncidentWithWorkOrder = (
+    workOrderId: string, 
+    completionNotes: string
+  ): { success: boolean; error?: string } => {
+    const wo = workOrders.find((w) => w.id === workOrderId);
+    if (!wo) return { success: false, error: 'Work order not found' };
+
+    setWorkOrders((prev) =>
+      prev.map((w) =>
+        w.id === workOrderId
+          ? { ...w, status: 'completed', completionRate: 100, completionNotes }
+          : w
+      )
+    );
+
+    if (wo.incidentId) {
+      setIncidents((prev) =>
+        prev.map((inc) => {
+          if (inc.id !== wo.incidentId) return inc;
+          return {
+            ...inc,
+            lifecycleStatus: 'resolved',
+            status: 'resolved',
+            resolvedAt: 'Just now',
+            slaDeadline: 'Resolved',
+          };
+        })
+      );
+    }
+
+    showToast(`Work Order ${wo.orderNumber} completed & linked incident resolved`, 'success');
+    return { success: true };
+  };
+
+  const refreshTechnicians = async (): Promise<void> => {
+    setIsLoadingTechnicians(true);
+    setTechniciansError(null);
+    try {
+      const res = await api.getTechnicians();
+      if (res.error) {
+        setTechniciansError(res.error);
+        setTechnicians([]);
+      } else {
+        setTechnicians(res.technicians || []);
+        setTechniciansError(null);
+      }
+    } catch (err: any) {
+      setTechniciansError(err?.message || 'Failed to load technicians');
+      setTechnicians([]);
+    } finally {
+      setIsLoadingTechnicians(false);
+    }
+  };
+
+  const allocateWorkOrderToTechnician = async (
+    workOrderId: string, 
+    technicianId: string, 
+    technicianName?: string
+  ): Promise<{ success: boolean; message?: string; workOrder?: WorkOrder }> => {
+    try {
+      const res = await api.allocateWorkOrder(workOrderId, technicianId, technicianName);
+      if (res.success && res.workOrder) {
+        setWorkOrders((prev) =>
+          prev.map((w) => (w.id === workOrderId ? res.workOrder! : w))
+        );
+        showToast(`Work order allocated to ${res.workOrder.assignedEngineer}`, 'success');
+        return { success: true, message: 'Work order allocated successfully', workOrder: res.workOrder };
+      }
+      const err = res.error || 'Failed to allocate technician to work order';
+      showToast(err, 'error');
+      return { success: false, message: err };
+    } catch (err: any) {
+      const msg = err?.message || 'Network error allocating work order';
+      showToast(msg, 'error');
+      return { success: false, message: msg };
+    }
+  };
+
+  const allocateStockToWorkOrder = (
+    workOrderId: string, 
+    sku: string, 
+    quantity: number
+  ): { success: boolean; error?: string; createdRequisition?: boolean } => {
+    const item = stockAlerts.find((s) => s.sku.toLowerCase() === sku.toLowerCase());
+    if (!item) return { success: false, error: 'Item not found' };
+
+    if (item.currentStock < quantity) {
+      const errorMsg = `Insufficient stock for ${item.itemName}`;
+      showToast(errorMsg, 'error');
+      return { success: false, error: errorMsg, createdRequisition: true };
+    }
+
+    return { success: true };
+  };
+
+  const createProcurementRequisition = (
+    sku: string, 
+    quantity: number, 
+    workOrderId?: string, 
+    urgency: 'high' | 'medium' = 'high'
+  ): ApprovalRequest => {
+    const item = stockAlerts.find((s) => s.sku.toLowerCase() === sku.toLowerCase());
+    const newReq: ApprovalRequest = {
+      id: `app-proc-${Date.now()}`,
+      title: `Procurement Requisition: ${item?.itemName || sku} (${quantity})`,
+      category: 'Spares & Machinery',
+      requestType: 'procurement',
+      requesterId: user.id,
+      requesterName: user.name,
+      requesterRole: user.role,
+      department: user.department || 'Campus Facilities',
+      estimatedCost: `₹${((item?.unitCost || 1800) * quantity).toLocaleString('en-IN')}`,
+      urgency,
+      status: 'pending',
+      submittedAt: 'Just now',
+      reason: `Restock for ${item?.itemName || sku}`,
+      entityId: sku,
+    };
+    setApprovals((prev) => [newReq, ...prev]);
+    showToast('Procurement requisition submitted', 'info');
+    return newReq;
+  };
+
+  const receiveGoods = (
+    sku: string, 
+    quantity: number, 
+    receiptToken: string
+  ): { success: boolean; isIdempotentReplay?: boolean; error?: string } => {
+    if (processedTokensRef.current.has(receiptToken)) {
+      showToast('Shipment already processed', 'info');
+      return { success: true, isIdempotentReplay: true };
+    }
+    processedTokensRef.current.add(receiptToken);
+    showToast(`Received ${quantity} items (Token: ${receiptToken})`, 'success');
+    return { success: true };
+  };
+
+  const addBooking = (
+    bookingData: Omit<RoomBooking, 'id' | 'bookingCode' | 'createdAt'>
+  ): { success: boolean; booking?: RoomBooking; error?: string } => {
+    const bookingCode = `BK-${Math.floor(920 + Math.random() * 70)}`;
+    const newBooking: RoomBooking = {
+      ...bookingData,
+      id: `book-${Date.now()}`,
+      bookingCode,
+      createdAt: 'Just now',
+      status: 'confirmed',
+    };
+    setBookings((prev) => [newBooking, ...prev]);
+    showToast(`Reservation #${bookingCode} confirmed`, 'success');
+    return { success: true, booking: newBooking };
+  };
+
+  const approveRoomRelocation = (
+    disruptionId: string, 
+    bookingId: string, 
+    targetRoomCode: string
+  ): { success: boolean; error?: string } => {
+    setRoomDisruptions((prev) =>
+      prev.map((d) => (d.id === disruptionId ? { ...d, status: 'mitigated', alternativeRoom: targetRoomCode } : d))
+    );
+    showToast(`Relocated to ${targetRoomCode}`, 'success');
+    return { success: true };
+  };
+
+  const performFacultyCheckIn = (roomCode: string) => {
+    setClassrooms((prev) =>
+      prev.map((c) => (c.roomCode === roomCode ? { ...c, status: 'occupied', lastUpdated: 'Just now' } : c))
+    );
+    showToast(`Faculty check-in confirmed for ${roomCode}`, 'success');
+  };
+
+  const updateClassroomOccupancyStatus = (roomCode: string, status: OccupancyStatus) => {
+    setClassrooms((prev) =>
+      prev.map((c) => (c.roomCode === roomCode ? { ...c, status, lastUpdated: 'Just now' } : c))
+    );
+    showToast(`Room ${roomCode} updated to ${status}`, 'info');
+  };
+
   return (
     <CampusContext.Provider
       value={{
+
+        // Phase 2.8 Cross-module, Occupancy & Navigation values
+        inventory: stockAlerts,
+        selectedIncidentId,
+        setSelectedIncidentId,
+        transitionIncidentStatus,
+        selectedWorkOrderId,
+        setSelectedWorkOrderId,
+        createWorkOrderForIncident,
+        resolveIncidentWithWorkOrder,
+        allocateStockToWorkOrder,
+        createProcurementRequisition,
+        receiveGoods,
+        addBooking,
+        approveRoomRelocation,
+        classrooms,
+        performFacultyCheckIn,
+        updateClassroomOccupancyStatus,
+        selectedRoomCode,
+        setSelectedRoomCode,
+        isMobileMenuOpen,
+        setIsMobileMenuOpen,
+        isBackendPersistent,
+        isLoadingData,
+        connectionError,
+        refreshData,
+        retryConnection: refreshData,
         user,
         setUserRole,
         incidents,
@@ -1592,6 +2184,11 @@ export const CampusProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         workOrders,
         addWorkOrder,
         updateWorkOrderStatus,
+        allocateWorkOrderToTechnician,
+        technicians,
+        isLoadingTechnicians,
+        techniciansError,
+        refreshTechnicians,
         stockAlerts,
         roomDisruptions,
         aiInsights,

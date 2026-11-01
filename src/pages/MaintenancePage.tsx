@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wrench, Clock, User, TrendingUp, Plus, Package, RotateCcw, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Wrench, Clock, User, TrendingUp, Plus, Package, RotateCcw, CheckCircle2, UserCheck } from 'lucide-react';
 import { useCampus } from '../context/CampusContext';
 import AllocatePartModal from '../components/modals/AllocatePartModal';
+import AllocateMaintenanceModal from '../components/modals/AllocateMaintenanceModal';
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   urgent: { bg: '#F8DCE8', text: '#BA3D6E', label: 'Urgent' },
@@ -23,10 +24,17 @@ export default function MaintenancePage() {
 
   const [isAllocateModalOpen, setIsAllocateModalOpen] = useState(false);
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string | null>(null);
+  const [isAllocateTechModalOpen, setIsAllocateTechModalOpen] = useState(false);
+  const [selectedWOForTech, setSelectedWOForTech] = useState<string | null>(null);
 
   const openAllocateModal = (woId: string) => {
     setSelectedWorkOrderId(woId);
     setIsAllocateModalOpen(true);
+  };
+
+  const openAllocateTechModal = (woId?: string) => {
+    setSelectedWOForTech(woId || null);
+    setIsAllocateTechModalOpen(true);
   };
 
   return (
@@ -39,12 +47,20 @@ export default function MaintenancePage() {
           <h1 className="font-space font-bold text-3xl text-[#24283B] tracking-tight">Maintenance</h1>
           <p className="font-jakarta text-sm text-[#74788C] mt-1">Active work orders, spare part allocations and completion tracking</p>
         </div>
-        <button
-          onClick={() => setIsCreateWorkOrderOpen(true)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#24283B] text-white font-jakarta font-semibold text-sm hover:bg-[#383E58] transition-colors"
-        >
-          <Plus size={16} /> Create Work Order
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => openAllocateTechModal()}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-[#E7E2DD] text-[#24283B] hover:bg-[#FAF7F1] font-jakarta font-semibold text-sm transition-colors shadow-xs"
+          >
+            <UserCheck size={16} className="text-[#C06B33]" /> Allocate Maintenance
+          </button>
+          <button
+            onClick={() => setIsCreateWorkOrderOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#24283B] text-white font-jakarta font-semibold text-sm hover:bg-[#383E58] transition-colors"
+          >
+            <Plus size={16} /> Create Work Order
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -83,13 +99,28 @@ export default function MaintenancePage() {
                       <span className="px-2 py-0.5 rounded-full font-jakarta text-[10px] font-bold" style={{ background: stat.bg, color: stat.text }}>{stat.label}</span>
                     </div>
 
-                    {/* Quick part allocate button */}
-                    <button
-                      onClick={() => openAllocateModal(wo.id)}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#FAF7F1] border border-[#E7E2DD] text-[#24283B] hover:bg-[#F6F0E5] font-jakarta text-xs font-semibold transition-colors"
-                    >
-                      <Package size={13} className="text-[#6878CA]" /> Allocate Parts
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* Technician allocate button */}
+                      <button
+                        onClick={() => openAllocateTechModal(wo.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border font-jakarta text-xs font-semibold transition-colors ${
+                          wo.assignedEngineer === 'Unassigned' || !wo.assignedEngineerId
+                            ? 'bg-[#FFF2E7] border-[#FFE4CF] text-[#C06B33] hover:bg-[#FFE0C4]'
+                            : 'bg-[#FAF7F1] border-[#E7E2DD] text-[#24283B] hover:bg-[#F6F0E5]'
+                        }`}
+                      >
+                        <UserCheck size={13} className="text-[#C06B33]" />
+                        {wo.assignedEngineer === 'Unassigned' || !wo.assignedEngineerId ? 'Allocate Technician' : 'Reallocate'}
+                      </button>
+
+                      {/* Quick part allocate button */}
+                      <button
+                        onClick={() => openAllocateModal(wo.id)}
+                        className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#FAF7F1] border border-[#E7E2DD] text-[#24283B] hover:bg-[#F6F0E5] font-jakarta text-xs font-semibold transition-colors"
+                      >
+                        <Package size={13} className="text-[#6878CA]" /> Allocate Parts
+                      </button>
+                    </div>
                   </div>
 
                   <h3 className="font-space font-bold text-[14px] text-[#24283B]">{wo.title}</h3>
@@ -165,6 +196,13 @@ export default function MaintenancePage() {
         isOpen={isAllocateModalOpen}
         onClose={() => setIsAllocateModalOpen(false)}
         initialWorkOrderId={selectedWorkOrderId}
+      />
+
+      {/* Allocate Maintenance Personnel Modal */}
+      <AllocateMaintenanceModal
+        isOpen={isAllocateTechModalOpen}
+        onClose={() => setIsAllocateTechModalOpen(false)}
+        initialWorkOrderId={selectedWOForTech}
       />
     </div>
   );

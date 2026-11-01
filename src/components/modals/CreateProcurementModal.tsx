@@ -32,7 +32,7 @@ export default function CreateProcurementModal({
       setSelectedItemId(initialItemId);
       const it = inventoryItems.find((i) => i.id === initialItemId);
       if (it) {
-        const defaultQty = suggestedQty || Math.max(it.maxThreshold - it.currentStock, it.minThreshold);
+        const defaultQty = suggestedQty || Math.max((it.maxThreshold ?? it.minThreshold * 3) - it.currentStock, it.minThreshold);
         setQuantity(defaultQty);
         setUrgency(it.currentStock === 0 ? 'urgent' : it.currentStock <= it.minThreshold / 2 ? 'high' : 'medium');
         if (defaultReason) {
@@ -46,7 +46,7 @@ export default function CreateProcurementModal({
     } else if (inventoryItems.length > 0 && !selectedItemId) {
       const it = inventoryItems[0];
       setSelectedItemId(it.id);
-      setQuantity(Math.max(it.maxThreshold - it.currentStock, it.minThreshold));
+      setQuantity(Math.max((it.maxThreshold ?? it.minThreshold * 3) - it.currentStock, it.minThreshold));
     }
   }, [initialItemId, suggestedQty, defaultReason, inventoryItems, selectedItemId]);
 
@@ -56,7 +56,7 @@ export default function CreateProcurementModal({
   const qtyNumber = Number(quantity) || 0;
   const estimatedTotal = currentItem ? currentItem.unitCost * qtyNumber : 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setValidationError(null);
 
@@ -76,15 +76,13 @@ export default function CreateProcurementModal({
     }
 
     setSubmitting(true);
-    setTimeout(() => {
-      const res = createProcurement({
+    try {
+      const res = await createProcurement({
         itemId: currentItem.id,
         quantity: qtyNumber,
         reason: reason.trim(),
         urgency,
       });
-
-      setSubmitting(false);
       if (res.success) {
         onClose();
         setReason('');
@@ -92,7 +90,9 @@ export default function CreateProcurementModal({
       } else {
         setValidationError(res.message);
       }
-    }, 400);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -144,7 +144,7 @@ export default function CreateProcurementModal({
                 setSelectedItemId(id);
                 const it = inventoryItems.find((i) => i.id === id);
                 if (it) {
-                  setQuantity(Math.max(it.maxThreshold - it.currentStock, it.minThreshold));
+                  setQuantity(Math.max((it.maxThreshold ?? it.minThreshold * 3) - it.currentStock, it.minThreshold));
                   setUrgency(it.currentStock === 0 ? 'urgent' : it.currentStock <= it.minThreshold / 2 ? 'high' : 'medium');
                 }
                 setValidationError(null);

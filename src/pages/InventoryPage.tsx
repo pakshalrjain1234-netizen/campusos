@@ -101,7 +101,9 @@ export default function InventoryPage() {
     return inventoryItems
       .filter((i) => i.currentStock <= i.minThreshold)
       .map((item) => {
-        const recommendedQty = Math.max(item.maxThreshold - item.currentStock, item.minThreshold);
+        const maxThresh = item.maxThreshold ?? item.minThreshold * 3;
+        const recommendedQty = Math.max(maxThresh - item.currentStock, item.minThreshold);
+        const itemName = (item.name || item.itemName || "");
         const estimatedCost = recommendedQty * item.unitCost;
 
         // Check if item blocks any active work orders
@@ -109,8 +111,8 @@ export default function InventoryPage() {
           if (wo.status === 'completed') return false;
           const matchesPart = (wo.partsRequired || []).some(
             (p) =>
-              p.toLowerCase().includes(item.name.toLowerCase()) ||
-              item.name.toLowerCase().includes(p.toLowerCase()) ||
+              p.toLowerCase().includes(itemName.toLowerCase()) ||
+              itemName.toLowerCase().includes(p.toLowerCase()) ||
               p.toLowerCase().includes(item.sku.toLowerCase())
           );
           const matchesEquipment = (item.compatibleEquipment || []).some((eq) =>
@@ -156,7 +158,7 @@ export default function InventoryPage() {
     const counts: Record<string, number> = {};
     stockTransactions.forEach((tx) => {
       if (tx.type === 'stock_out' || tx.type === 'allocation') {
-        counts[tx.itemId] = (counts[tx.itemId] || 0) + tx.quantity;
+        if (tx.itemId) { counts[tx.itemId] = (counts[tx.itemId] || 0) + tx.quantity; }
       }
     });
 
@@ -174,10 +176,10 @@ export default function InventoryPage() {
   const filteredCatalogue = useMemo(() => {
     return inventoryItems.filter((item) => {
       const matchesSearch =
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.itemName || item.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.supplierName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.supplierName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.category.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
@@ -661,7 +663,7 @@ export default function InventoryPage() {
                                 (min: {item.minThreshold})
                               </span>
                             </div>
-                            {item.allocatedQuantity > 0 && (
+                            {(item.allocatedQuantity ?? 0) > 0 && (
                               <span className="font-jakarta text-[10px] text-[#C06B33] block">
                                 {item.allocatedQuantity} allocated to WOs
                               </span>
@@ -943,6 +945,7 @@ export default function InventoryPage() {
                   {filteredTransactions.map((tx) => {
                     const isPositive = tx.type === 'stock_in' || tx.type === 'return';
                     const TYPE_BADGES: Record<StockTransactionType, { bg: string; text: string; label: string }> = {
+                      receipt: { bg: '#D5F3E8', text: '#1B6648', label: 'Receipt' },
                       stock_in: { bg: '#D5F3E8', text: '#1B6648', label: 'Stock-In' },
                       stock_out: { bg: '#F8DCE8', text: '#BA3D6E', label: 'Stock-Out' },
                       allocation: { bg: '#FFE4CF', text: '#C06B33', label: 'WO Allocation' },

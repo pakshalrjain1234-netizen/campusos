@@ -47,6 +47,13 @@ export default function StockOperationModal({
     StockTransactionType,
     { label: string; icon: React.ElementType; color: string; bg: string; description: string }
   > = {
+    receipt: {
+      label: "Goods Receipt",
+      icon: ArrowDownRight,
+      color: "#1B6648",
+      bg: "#D5F3E8",
+      description: "Receive new shipment against goods receipt note",
+    },
     stock_in: {
       label: 'Stock-In (Receipt)',
       icon: ArrowDownRight,

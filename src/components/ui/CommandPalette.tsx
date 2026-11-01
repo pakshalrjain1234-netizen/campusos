@@ -6,6 +6,8 @@ import {
   Plus, FileText, ArrowRight,
 } from 'lucide-react';
 import { useCampus } from '../../context/CampusContext';
+import { useAuth } from '../../context/AuthContext';
+import { canAccessRoute, normalizeRole } from '../../utils/permissions';
 
 interface CommandItem {
   id: string;
@@ -25,6 +27,8 @@ export default function CommandPalette() {
     setIsReportIncidentOpen,
     setIsCreateWorkOrderOpen,
   } = useCampus();
+  const { role } = useAuth();
+  const normRole = normalizeRole(role);
 
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -58,22 +62,39 @@ export default function CommandPalette() {
     { id: 'nav-maintenance', label: 'Go to Maintenance', description: 'Work orders & scheduling', icon: Wrench, group: 'Navigate', action: () => { navigate('/maintenance'); close(); } },
     { id: 'nav-inventory', label: 'Go to Inventory', description: 'Assets and stock levels', icon: Package, group: 'Navigate', action: () => { navigate('/inventory'); close(); } },
     { id: 'nav-bookings', label: 'Go to Room Booking', description: 'Reserve campus spaces', icon: CalendarDays, group: 'Navigate', action: () => { navigate('/bookings'); close(); } },
+    { id: 'nav-spare-parts', label: 'Go to Spare-Part Finder', description: 'Locate components & workshop inventory', icon: Search, group: 'Navigate', action: () => { navigate('/spare-parts'); close(); } },
     { id: 'nav-risk', label: 'Go to Risk Radar', description: 'Predictive campus risk analysis', icon: Radar, group: 'Navigate', action: () => { navigate('/risk-radar'); close(); } },
     { id: 'nav-approvals', label: 'Go to Approvals', description: '3 pending requests', icon: CheckCircle2, group: 'Navigate', action: () => { navigate('/approvals'); close(); } },
     { id: 'nav-analytics', label: 'Go to Analytics', description: 'Reports and insights', icon: BarChart3, group: 'Navigate', action: () => { navigate('/analytics'); close(); } },
     { id: 'nav-settings', label: 'Go to Settings', description: 'System configuration', icon: Settings, group: 'Navigate', action: () => { navigate('/settings'); close(); } },
+    { id: 'bld-it', label: 'View Department of Computing & IT', description: 'IT Block · 8 open incidents · Health 82%', icon: Building2, group: 'Campus Facilities', action: () => { navigate('/campus-3d'); close(); } },
+    { id: 'bld-mech', label: 'View Mechanical & Robotics Center', description: 'Mech Block · 5 open incidents · Health 88%', icon: Building2, group: 'Campus Facilities', action: () => { navigate('/campus-3d'); close(); } },
+    { id: 'bld-main', label: 'View Main Administrative Block', description: 'Main Block · 4 open incidents · Health 94%', icon: Building2, group: 'Campus Facilities', action: () => { navigate('/campus-3d'); close(); } },
+    { id: 'bld-lib', label: 'View Central Information & Library', description: 'Central Library · 1 open incident · Health 99%', icon: Building2, group: 'Campus Facilities', action: () => { navigate('/campus-3d'); close(); } },
     { id: 'act-report', label: 'Report an Incident', description: 'Log a new campus incident', icon: Plus, group: 'Quick Actions', shortcut: 'Shift+R', action: () => { setIsReportIncidentOpen(true); close(); } },
     { id: 'act-workorder', label: 'Create Work Order', description: 'Issue a maintenance work order', icon: FileText, group: 'Quick Actions', shortcut: 'Shift+W', action: () => { setIsCreateWorkOrderOpen(true); close(); } },
     { id: 'act-room', label: 'Book a Room', description: 'Reserve a campus space', icon: CalendarDays, group: 'Quick Actions', action: () => { navigate('/bookings'); close(); } },
     { id: 'act-inventory', label: 'Check Inventory', description: 'View stock levels', icon: Package, group: 'Quick Actions', action: () => { navigate('/inventory'); close(); } },
   ];
 
+  const permittedItems = allItems.filter((item) => {
+    if (item.id === 'nav-maintenance' && !canAccessRoute(role, '/maintenance')) return false;
+    if (item.id === 'nav-inventory' && !canAccessRoute(role, '/inventory')) return false;
+    if (item.id === 'nav-spare-parts' && !canAccessRoute(role, '/spare-parts')) return false;
+    if (item.id === 'nav-risk' && !canAccessRoute(role, '/risk-radar')) return false;
+    if (item.id === 'nav-approvals' && !canAccessRoute(role, '/approvals')) return false;
+    if (item.id === 'nav-analytics' && !canAccessRoute(role, '/analytics')) return false;
+    if (item.id === 'act-workorder' && (normRole === 'student_faculty' || normRole === 'procurement_approver')) return false;
+    if (item.id === 'act-inventory' && !canAccessRoute(role, '/inventory')) return false;
+    return true;
+  });
+
   const filtered = query.trim().length === 0
-    ? allItems
-    : allItems.filter((item) =>
-        item.label.toLowerCase().includes(query.toLowerCase()) ||
-        (item.description ?? '').toLowerCase().includes(query.toLowerCase())
-      );
+    ? permittedItems
+    : permittedItems.filter((item) =>
+      item.label.toLowerCase().includes(query.toLowerCase()) ||
+      (item.description ?? '').toLowerCase().includes(query.toLowerCase())
+    );
 
   const groups = [...new Set(filtered.map((i) => i.group))];
 
@@ -149,13 +170,11 @@ export default function CommandPalette() {
                         key={item.id}
                         onClick={item.action}
                         onMouseEnter={() => setActiveIndex(idx)}
-                        className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left ${
-                          isActive ? 'bg-[#E6E9FF]' : 'hover:bg-[#FAF7F1]'
-                        }`}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left ${isActive ? 'bg-[#E6E9FF]' : 'hover:bg-[#FAF7F1]'
+                          }`}
                       >
-                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                          isActive ? 'bg-[#24283B] text-white' : 'bg-[#F6F0E5] text-[#74788C]'
-                        }`}>
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${isActive ? 'bg-[#24283B] text-white' : 'bg-[#F6F0E5] text-[#74788C]'
+                          }`}>
                           <Icon size={16} />
                         </div>
                         <div className="flex-1 min-w-0">

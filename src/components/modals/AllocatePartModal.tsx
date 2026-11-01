@@ -17,13 +17,14 @@ export default function AllocatePartModal({
   initialItemId,
   onOpenProcurementModal,
 }: AllocatePartModalProps) {
-  const { workOrders, inventoryItems, allocatePartToWorkOrder, user } = useCampus();
+  const { workOrders, inventoryItems, allocatePartToWorkOrder, user, technicians, allocateWorkOrderToTechnician } = useCampus();
 
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<string>('');
   const [selectedItemId, setSelectedItemId] = useState<string>('');
   const [quantity, setQuantity] = useState<number | ''>(1);
   const [submitting, setSubmitting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isChangingTechnician, setIsChangingTechnician] = useState(false);
 
   useEffect(() => {
     if (initialWorkOrderId) {
@@ -158,7 +159,47 @@ export default function AllocatePartModal({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[#74788C]">Assigned Engineer:</span>
-                <span className="font-semibold text-[#24283B]">{currentWorkOrder.assignedEngineer}</span>
+                {!isChangingTechnician ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-[#24283B]">{currentWorkOrder.assignedEngineer}</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsChangingTechnician(true)}
+                      className="text-[10px] text-[#C06B33] hover:underline font-bold"
+                    >
+                      {currentWorkOrder.assignedEngineer === 'Unassigned' ? 'Allocate' : 'Change'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <select
+                      onChange={async (e) => {
+                        const techId = e.target.value;
+                        if (techId) {
+                          const tech = technicians.find((t) => t.id === techId);
+                          await allocateWorkOrderToTechnician(currentWorkOrder.id, techId, tech?.fullName || tech?.name);
+                        }
+                        setIsChangingTechnician(false);
+                      }}
+                      className="text-xs p-1 rounded-lg border border-[#E7E2DD] bg-white font-jakarta"
+                      defaultValue=""
+                    >
+                      <option value="" disabled>Select technician...</option>
+                      {technicians.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.fullName || t.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setIsChangingTechnician(false)}
+                      className="text-[10px] text-[#74788C] hover:text-[#BA3D6E]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
               {currentWorkOrder.partsRequired && currentWorkOrder.partsRequired.length > 0 && (
                 <div className="flex items-center justify-between pt-1 border-t border-[#E7E2DD]/60">

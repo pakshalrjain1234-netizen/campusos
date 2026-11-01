@@ -97,7 +97,8 @@ class CampusLogger {
       console.log(formatted, entry.details || '');
     } else {
       // DEBUG
-      if (import.meta.env?.DEV) {
+      const isDev = typeof process !== 'undefined' ? process.env?.NODE_ENV !== 'production' : true;
+      if (isDev) {
         console.debug(formatted, entry.details || '');
       }
     }

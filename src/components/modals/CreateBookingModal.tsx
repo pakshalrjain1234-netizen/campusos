@@ -85,7 +85,7 @@ export default function CreateBookingModal() {
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -115,7 +115,7 @@ export default function CreateBookingModal() {
       return;
     }
 
-    const result = createBooking({
+    const result = await createBooking({
       roomId: selectedRoom.id,
       roomCode: selectedRoom.roomNumber,
       roomName: selectedRoom.name,

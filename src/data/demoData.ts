@@ -492,13 +492,13 @@ export const DEMO_ROOMS: Room[] = [
     isAccessible: true,
   },
 
-  // AR-06: MNM School of Architecture
+  // AR-06: Design & Innovation Center
   {
     id: 'room-ar-studio-1',
     roomNumber: 'AR-101',
     name: 'Design Studio 101',
     buildingId: 'architecture-block',
-    buildingName: 'MNM School of Architecture',
+    buildingName: 'Design & Innovation Center',
     floor: '1st Floor',
     capacity: 45,
     roomType: 'workshop',
@@ -512,7 +512,7 @@ export const DEMO_ROOMS: Room[] = [
     roomNumber: 'AR-202',
     name: 'Crit & Jury Presentation Hall',
     buildingId: 'architecture-block',
-    buildingName: 'MNM School of Architecture',
+    buildingName: 'Design & Innovation Center',
     floor: '2nd Floor',
     capacity: 75,
     roomType: 'seminar_hall',
@@ -711,7 +711,7 @@ export const DEMO_ROOM_BOOKINGS: RoomBooking[] = [
     roomCode: 'Crit Hall',
     roomName: 'Crit & Jury Presentation Hall',
     buildingId: 'architecture-block',
-    buildingName: 'MNM School of Architecture',
+    buildingName: 'Design & Innovation Center',
     date: '2026-10-30',
     startTime: '13:30',
     endTime: '17:30',

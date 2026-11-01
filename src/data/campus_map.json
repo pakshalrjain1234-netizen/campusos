@@ -1,0 +1,1046 @@
+{
+  "metadata": {
+    "campus_id": "CampusOps",
+    "name": "CampusOps Fictional Campus",
+    "coordinate_system": "Metric metres; X east-west, Y north-south, +Y north, Z up; ground at Z=0",
+    "campus_size_m": {
+      "x": 420,
+      "y": 360
+    },
+    "model_scale": "1 Blender unit = 1 metre",
+    "source": "User-provided final CampusOps blueprint",
+    "origin": "campus centre at (0,0,0)",
+    "assumptions": [
+      "Illustrative dimensions scaled from conceptual plan; not architect-verified.",
+      "Building IDs A1-A13 map to the published short codes.",
+      "Ground and road dimensions are approximate."
+    ]
+  },
+  "buildings": [
+    {
+      "id": "A1",
+      "code": "ACB",
+      "name": "Academic Block",
+      "category": "academic",
+      "position": {
+        "x": -132,
+        "y": 88,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 62,
+        "y": 40,
+        "z": 17.5
+      },
+      "height_m": 17.5,
+      "floor_count": 4,
+      "blender_object": "building_ACB",
+      "blender_stable_id": "ACB",
+      "building_id": "A1"
+    },
+    {
+      "id": "A2",
+      "code": "SCB",
+      "name": "Science Block",
+      "category": "academic",
+      "position": {
+        "x": -52,
+        "y": 88,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 58,
+        "y": 38,
+        "z": 13.5
+      },
+      "height_m": 13.5,
+      "floor_count": 3,
+      "blender_object": "building_SCB",
+      "blender_stable_id": "SCB",
+      "building_id": "A2"
+    },
+    {
+      "id": "A3",
+      "code": "AUD",
+      "name": "Auditorium",
+      "category": "academic",
+      "position": {
+        "x": 28,
+        "y": 88,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 49,
+        "y": 43,
+        "z": 9.5
+      },
+      "height_m": 9.5,
+      "floor_count": 2,
+      "blender_object": "building_AUD",
+      "blender_stable_id": "AUD",
+      "building_id": "A3"
+    },
+    {
+      "id": "A4",
+      "code": "LIB",
+      "name": "Library",
+      "category": "academic",
+      "position": {
+        "x": 101,
+        "y": 88,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 48,
+        "y": 40,
+        "z": 9.5
+      },
+      "height_m": 9.5,
+      "floor_count": 2,
+      "blender_object": "building_LIB",
+      "blender_stable_id": "LIB",
+      "building_id": "A4"
+    },
+    {
+      "id": "A5",
+      "code": "ADM",
+      "name": "Administration Block",
+      "category": "administrative",
+      "position": {
+        "x": 166,
+        "y": 88,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 58,
+        "y": 39,
+        "z": 9.5
+      },
+      "height_m": 9.5,
+      "floor_count": 2,
+      "blender_object": "building_ADM",
+      "blender_stable_id": "ADM",
+      "building_id": "A5"
+    },
+    {
+      "id": "A7",
+      "code": "HST",
+      "name": "Hostel",
+      "category": "residential",
+      "position": {
+        "x": -62,
+        "y": 0,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 48,
+        "y": 48,
+        "z": 17.5
+      },
+      "height_m": 17.5,
+      "floor_count": 4,
+      "blender_object": "building_HST",
+      "blender_stable_id": "HST",
+      "building_id": "A7"
+    },
+    {
+      "id": "A8",
+      "code": "CAF",
+      "name": "Cafeteria",
+      "category": "academic",
+      "position": {
+        "x": 39,
+        "y": 0,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 48,
+        "y": 40,
+        "z": 5.5
+      },
+      "height_m": 5.5,
+      "floor_count": 1,
+      "blender_object": "building_CAF",
+      "blender_stable_id": "CAF",
+      "building_id": "A8"
+    },
+    {
+      "id": "A9",
+      "code": "ITB",
+      "name": "IT Block",
+      "category": "academic",
+      "position": {
+        "x": 133,
+        "y": 0,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 43,
+        "y": 45,
+        "z": 13.5
+      },
+      "height_m": 13.5,
+      "floor_count": 3,
+      "blender_object": "building_ITB",
+      "blender_stable_id": "ITB",
+      "building_id": "A9"
+    },
+    {
+      "id": "A10",
+      "code": "HEC",
+      "name": "Health Centre",
+      "category": "academic",
+      "position": {
+        "x": -94,
+        "y": -83,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 36,
+        "y": 30,
+        "z": 5.5
+      },
+      "height_m": 5.5,
+      "floor_count": 1,
+      "blender_object": "building_HEC",
+      "blender_stable_id": "HEC",
+      "building_id": "A10"
+    },
+    {
+      "id": "A11",
+      "code": "WSH",
+      "name": "Workshop",
+      "category": "service",
+      "position": {
+        "x": -36,
+        "y": -83,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 38,
+        "y": 30,
+        "z": 5.5
+      },
+      "height_m": 5.5,
+      "floor_count": 1,
+      "blender_object": "building_WSH",
+      "blender_stable_id": "WSH",
+      "building_id": "A11"
+    },
+    {
+      "id": "A12",
+      "code": "MES",
+      "name": "Mess",
+      "category": "service",
+      "position": {
+        "x": 48,
+        "y": -83,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 30,
+        "y": 29,
+        "z": 5.5
+      },
+      "height_m": 5.5,
+      "floor_count": 1,
+      "blender_object": "building_MES",
+      "blender_stable_id": "MES",
+      "building_id": "A12"
+    },
+    {
+      "id": "A13",
+      "code": "CAN",
+      "name": "Canteen",
+      "category": "service",
+      "position": {
+        "x": 91,
+        "y": -83,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 27,
+        "y": 29,
+        "z": 5.5
+      },
+      "height_m": 5.5,
+      "floor_count": 1,
+      "blender_object": "building_CAN",
+      "blender_stable_id": "CAN",
+      "building_id": "A13"
+    },
+    {
+      "id": "A6",
+      "code": "SPG",
+      "name": "Sports Ground",
+      "category": "sports",
+      "position": {
+        "x": -145,
+        "y": 0,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 70,
+        "y": 48,
+        "z": 0
+      },
+      "height_m": 0,
+      "floor_count": 0,
+      "blender_object": "sports_pitch",
+      "blender_stable_id": "SPG",
+      "building_id": "A6"
+    },
+    {
+      "id": "P1",
+      "code": "PRK",
+      "name": "Parking",
+      "category": "parking",
+      "position": {
+        "x": 155,
+        "y": -84,
+        "z": 0
+      },
+      "dimensions": {
+        "x": 42,
+        "y": 44,
+        "z": 0
+      },
+      "height_m": 0,
+      "floor_count": 0,
+      "blender_object": "parking_lot",
+      "blender_stable_id": "PRK",
+      "building_id": "P1"
+    }
+  ],
+  "rooms": [
+    {
+      "id": "room_ACB_A101",
+      "building_id": "A1",
+      "room_code": "A101",
+      "floor": 0,
+      "room_type": "Classroom",
+      "capacity": null,
+      "position": {
+        "x": -147,
+        "y": 78,
+        "z": 0.2
+      },
+      "blender_object": "room_ACB_A101",
+      "building_code": "ACB"
+    },
+    {
+      "id": "room_ACB_A102",
+      "building_id": "A1",
+      "room_code": "A102",
+      "floor": 0,
+      "room_type": "Classroom",
+      "capacity": null,
+      "position": {
+        "x": -117,
+        "y": 78,
+        "z": 0.2
+      },
+      "blender_object": "room_ACB_A102",
+      "building_code": "ACB"
+    },
+    {
+      "id": "room_ACB_A103",
+      "building_id": "A1",
+      "room_code": "A103",
+      "floor": 0,
+      "room_type": "Classroom",
+      "capacity": null,
+      "position": {
+        "x": -147,
+        "y": 98,
+        "z": 0.2
+      },
+      "blender_object": "room_ACB_A103",
+      "building_code": "ACB"
+    },
+    {
+      "id": "room_ACB_A104",
+      "building_id": "A1",
+      "room_code": "A104",
+      "floor": 0,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -117,
+        "y": 98,
+        "z": 0.2
+      },
+      "blender_object": "room_ACB_A104",
+      "building_code": "ACB"
+    },
+    {
+      "id": "room_ACB_A105",
+      "building_id": "A1",
+      "room_code": "A105",
+      "floor": 0,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -152,
+        "y": 88,
+        "z": 0.2
+      },
+      "blender_object": "room_ACB_A105",
+      "building_code": "ACB"
+    },
+    {
+      "id": "room_ACB_A106",
+      "building_id": "A1",
+      "room_code": "A106",
+      "floor": 0,
+      "room_type": "Stairs",
+      "capacity": null,
+      "position": {
+        "x": -112,
+        "y": 88,
+        "z": 0.2
+      },
+      "blender_object": "room_ACB_A106",
+      "building_code": "ACB"
+    },
+    {
+      "id": "room_SCB_S201",
+      "building_id": "A2",
+      "room_code": "S201",
+      "floor": 1,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -65,
+        "y": 80,
+        "z": 4.2
+      },
+      "blender_object": "room_SCB_S201",
+      "building_code": "SCB"
+    },
+    {
+      "id": "room_SCB_S202",
+      "building_id": "A2",
+      "room_code": "S202",
+      "floor": 1,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -52,
+        "y": 80,
+        "z": 4.2
+      },
+      "blender_object": "room_SCB_S202",
+      "building_code": "SCB"
+    },
+    {
+      "id": "room_SCB_S203",
+      "building_id": "A2",
+      "room_code": "S203",
+      "floor": 1,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -39,
+        "y": 80,
+        "z": 4.2
+      },
+      "blender_object": "room_SCB_S203",
+      "building_code": "SCB"
+    },
+    {
+      "id": "room_SCB_S204",
+      "building_id": "A2",
+      "room_code": "S204",
+      "floor": 1,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -65,
+        "y": 96,
+        "z": 4.2
+      },
+      "blender_object": "room_SCB_S204",
+      "building_code": "SCB"
+    },
+    {
+      "id": "room_SCB_S205",
+      "building_id": "A2",
+      "room_code": "S205",
+      "floor": 1,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -52,
+        "y": 96,
+        "z": 4.2
+      },
+      "blender_object": "room_SCB_S205",
+      "building_code": "SCB"
+    },
+    {
+      "id": "room_SCB_S206",
+      "building_id": "A2",
+      "room_code": "S206",
+      "floor": 1,
+      "room_type": "Laboratory",
+      "capacity": null,
+      "position": {
+        "x": -39,
+        "y": 96,
+        "z": 4.2
+      },
+      "blender_object": "room_SCB_S206",
+      "building_code": "SCB"
+    },
+    {
+      "id": "room_LIB_L101",
+      "building_id": "A4",
+      "room_code": "L101",
+      "floor": 1,
+      "room_type": "Books",
+      "capacity": null,
+      "position": {
+        "x": 86,
+        "y": 81,
+        "z": 4.2
+      },
+      "blender_object": "room_LIB_L101",
+      "building_code": "LIB"
+    },
+    {
+      "id": "room_LIB_L102",
+      "building_id": "A4",
+      "room_code": "L102",
+      "floor": 1,
+      "room_type": "Study Room",
+      "capacity": null,
+      "position": {
+        "x": 101,
+        "y": 81,
+        "z": 4.2
+      },
+      "blender_object": "room_LIB_L102",
+      "building_code": "LIB"
+    },
+    {
+      "id": "room_LIB_L103",
+      "building_id": "A4",
+      "room_code": "L103",
+      "floor": 1,
+      "room_type": "Computer Lab",
+      "capacity": null,
+      "position": {
+        "x": 116,
+        "y": 81,
+        "z": 4.2
+      },
+      "blender_object": "room_LIB_L103",
+      "building_code": "LIB"
+    },
+    {
+      "id": "room_LIB_L104",
+      "building_id": "A4",
+      "room_code": "L104",
+      "floor": 0,
+      "room_type": "Reading Hall",
+      "capacity": null,
+      "position": {
+        "x": 101,
+        "y": 97,
+        "z": 0.2
+      },
+      "blender_object": "room_LIB_L104",
+      "building_code": "LIB"
+    },
+    {
+      "id": "room_LIB_L105",
+      "building_id": "A4",
+      "room_code": "L105",
+      "floor": 0,
+      "room_type": "Stairs",
+      "capacity": null,
+      "position": {
+        "x": 126,
+        "y": 96,
+        "z": 0.2
+      },
+      "blender_object": "room_LIB_L105",
+      "building_code": "LIB"
+    },
+    {
+      "id": "room_HST_H101",
+      "building_id": "A7",
+      "room_code": "H101",
+      "floor": 2,
+      "room_type": "Bedroom",
+      "capacity": null,
+      "position": {
+        "x": -77,
+        "y": -13,
+        "z": 8.2
+      },
+      "blender_object": "room_HST_H101",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_HST_H102",
+      "building_id": "A7",
+      "room_code": "H102",
+      "floor": 2,
+      "room_type": "Bedroom",
+      "capacity": null,
+      "position": {
+        "x": -62,
+        "y": -13,
+        "z": 8.2
+      },
+      "blender_object": "room_HST_H102",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_HST_H103",
+      "building_id": "A7",
+      "room_code": "H103",
+      "floor": 2,
+      "room_type": "Bedroom",
+      "capacity": null,
+      "position": {
+        "x": -47,
+        "y": -13,
+        "z": 8.2
+      },
+      "blender_object": "room_HST_H103",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_HST_H104",
+      "building_id": "A7",
+      "room_code": "H104",
+      "floor": 2,
+      "room_type": "Bedroom",
+      "capacity": null,
+      "position": {
+        "x": -77,
+        "y": 13,
+        "z": 8.2
+      },
+      "blender_object": "room_HST_H104",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_HST_H105",
+      "building_id": "A7",
+      "room_code": "H105",
+      "floor": 2,
+      "room_type": "Bedroom",
+      "capacity": null,
+      "position": {
+        "x": -62,
+        "y": 13,
+        "z": 8.2
+      },
+      "blender_object": "room_HST_H105",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_HST_H106",
+      "building_id": "A7",
+      "room_code": "H106",
+      "floor": 2,
+      "room_type": "Bedroom",
+      "capacity": null,
+      "position": {
+        "x": -47,
+        "y": 13,
+        "z": 8.2
+      },
+      "blender_object": "room_HST_H106",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_HST_H107",
+      "building_id": "A7",
+      "room_code": "H107",
+      "floor": 0,
+      "room_type": "Corridor",
+      "capacity": null,
+      "position": {
+        "x": -62,
+        "y": 0,
+        "z": 0.2
+      },
+      "blender_object": "room_HST_H107",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_HST_H108",
+      "building_id": "A7",
+      "room_code": "H108",
+      "floor": 0,
+      "room_type": "Stairs",
+      "capacity": null,
+      "position": {
+        "x": -38,
+        "y": 0,
+        "z": 0.2
+      },
+      "blender_object": "room_HST_H108",
+      "building_code": "HST"
+    },
+    {
+      "id": "room_ITB_I101",
+      "building_id": "A9",
+      "room_code": "I101",
+      "floor": 1,
+      "room_type": "Computer Lab",
+      "capacity": null,
+      "position": {
+        "x": 123,
+        "y": -8,
+        "z": 4.2
+      },
+      "blender_object": "room_ITB_I101",
+      "building_code": "ITB"
+    },
+    {
+      "id": "room_ITB_I102",
+      "building_id": "A9",
+      "room_code": "I102",
+      "floor": 1,
+      "room_type": "Server Room",
+      "capacity": null,
+      "position": {
+        "x": 143,
+        "y": -8,
+        "z": 4.2
+      },
+      "blender_object": "room_ITB_I102",
+      "building_code": "ITB"
+    },
+    {
+      "id": "room_ITB_I103",
+      "building_id": "A9",
+      "room_code": "I103",
+      "floor": 0,
+      "room_type": "Office",
+      "capacity": null,
+      "position": {
+        "x": 133,
+        "y": 8,
+        "z": 0.2
+      },
+      "blender_object": "room_ITB_I103",
+      "building_code": "ITB"
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset_ACB_A101_PROJECTOR_01",
+      "asset_type": "Projector",
+      "building_id": "A1",
+      "room_id": "room_ACB_A101",
+      "position": {
+        "x": -145,
+        "y": 82,
+        "z": 3
+      },
+      "blender_object": "asset_asset_ACB_A101_PROJECTOR_01",
+      "building_code": "ACB"
+    },
+    {
+      "id": "asset_ITB_I101_COMPUTER_01",
+      "asset_type": "Computer",
+      "building_id": "A9",
+      "room_id": "room_ITB_I101",
+      "position": {
+        "x": 113,
+        "y": -6,
+        "z": 3
+      },
+      "blender_object": "asset_asset_ITB_I101_COMPUTER_01",
+      "building_code": "ITB"
+    },
+    {
+      "id": "microscope_SCB_S201",
+      "asset_type": "Lab Equipment",
+      "building_id": "A2",
+      "room_id": "room_SCB_S201",
+      "position": {
+        "x": -60,
+        "y": 84,
+        "z": 3
+      },
+      "blender_object": "asset_microscope_SCB_S201",
+      "building_code": "SCB"
+    },
+    {
+      "id": "hvac_ADM_roof",
+      "asset_type": "HVAC",
+      "building_id": "A5",
+      "room_id": null,
+      "position": {
+        "x": 126,
+        "y": 92,
+        "z": 13
+      },
+      "blender_object": "asset_hvac_ADM_roof",
+      "building_code": "ADM"
+    },
+    {
+      "id": "generator_ADM_ground",
+      "asset_type": "Generator",
+      "building_id": "A5",
+      "room_id": null,
+      "position": {
+        "x": 148,
+        "y": 65,
+        "z": 1
+      },
+      "blender_object": "asset_generator_ADM_ground",
+      "building_code": "ADM"
+    },
+    {
+      "id": "cctv_main_gate",
+      "asset_type": "CCTV",
+      "building_id": "A1",
+      "room_id": null,
+      "position": {
+        "x": 0,
+        "y": -121,
+        "z": 4
+      },
+      "blender_object": "asset_cctv_main_gate",
+      "building_code": "ACB"
+    },
+    {
+      "id": "fire_safety_LIB_L101",
+      "asset_type": "Fire Safety",
+      "building_id": "A4",
+      "room_id": "room_LIB_L101",
+      "position": {
+        "x": 22,
+        "y": 85,
+        "z": 1
+      },
+      "blender_object": "asset_fire_safety_LIB_L101",
+      "building_code": "LIB"
+    },
+    {
+      "id": "spare_parts_WSH_store",
+      "asset_type": "Spare Parts",
+      "building_id": "A11",
+      "room_id": null,
+      "position": {
+        "x": -25,
+        "y": -82,
+        "z": 1
+      },
+      "blender_object": "asset_spare_parts_WSH_store",
+      "building_code": "WSH"
+    }
+  ],
+  "entrances": [
+    {
+      "id": "ENT_MAIN",
+      "name": "Main Gate",
+      "type": "primary",
+      "position": {
+        "x": 0,
+        "y": -149,
+        "z": 0
+      }
+    },
+    {
+      "id": "ENT_NORTH",
+      "name": "North Gate",
+      "type": "secondary",
+      "position": {
+        "x": 0,
+        "y": 149,
+        "z": 0
+      }
+    },
+    {
+      "id": "ENT_WEST",
+      "name": "West Gate",
+      "type": "secondary",
+      "position": {
+        "x": -187,
+        "y": 8,
+        "z": 0
+      }
+    },
+    {
+      "id": "ENT_SERVICE",
+      "name": "Service Gate",
+      "type": "secondary",
+      "position": {
+        "x": 187,
+        "y": 20,
+        "z": 0
+      }
+    }
+  ],
+  "routing": {
+    "road_nodes": [
+      {
+        "id": "road_south",
+        "nodes": [
+          [
+            -200,
+            -139,
+            0
+          ],
+          [
+            0,
+            -139,
+            0
+          ],
+          [
+            200,
+            -139,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "road_north",
+        "nodes": [
+          [
+            -190,
+            137,
+            0
+          ],
+          [
+            0,
+            137,
+            0
+          ],
+          [
+            190,
+            137,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "road_west",
+        "nodes": [
+          [
+            -187,
+            -133,
+            0
+          ],
+          [
+            -187,
+            0,
+            0
+          ],
+          [
+            -187,
+            133,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "road_east",
+        "nodes": [
+          [
+            187,
+            -133,
+            0
+          ],
+          [
+            187,
+            0,
+            0
+          ],
+          [
+            187,
+            133,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "walkway_spine",
+        "nodes": [
+          [
+            0,
+            -117,
+            0
+          ],
+          [
+            0,
+            -39,
+            0
+          ],
+          [
+            0,
+            4,
+            0
+          ],
+          [
+            0,
+            45,
+            0
+          ],
+          [
+            0,
+            126,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "walkway_cross",
+        "nodes": [
+          [
+            -165,
+            45,
+            0
+          ],
+          [
+            0,
+            45,
+            0
+          ],
+          [
+            165,
+            45,
+            0
+          ]
+        ]
+      }
+    ],
+    "north_direction": [
+      0,
+      1,
+      0
+    ],
+    "connections": [
+      {
+        "from": "ENT_MAIN",
+        "to": "road_south"
+      },
+      {
+        "from": "road_south",
+        "to": "walkway_spine"
+      },
+      {
+        "from": "road_north",
+        "to": "walkway_spine"
+      },
+      {
+        "from": "road_west",
+        "to": "walkway_cross"
+      },
+      {
+        "from": "road_east",
+        "to": "walkway_cross"
+      }
+    ]
+  }
+}

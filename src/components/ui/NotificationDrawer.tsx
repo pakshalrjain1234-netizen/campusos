@@ -31,7 +31,7 @@ export default function NotificationDrawer() {
 
       {/* Drawer */}
       <div
-        className="fixed top-0 right-0 h-full w-full max-w-[400px] bg-white z-50 flex flex-col shadow-[−24px_0_48px_-8px_rgba(36,40,59,0.14)] transition-transform duration-300 ease-in-out border-l border-[#E7E2DD]"
+        className="fixed top-0 right-0 h-full w-full max-w-[400px] bg-white z-50 flex flex-col shadow-[-24px_0_48px_-8px_rgba(36,40,59,0.14)] transition-transform duration-300 ease-in-out border-l border-[#E7E2DD]"
         style={{ transform: isNotificationDrawerOpen ? 'translateX(0)' : 'translateX(100%)' }}
       >
         {/* Header */}

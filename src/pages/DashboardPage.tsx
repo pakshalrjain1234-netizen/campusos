@@ -1,3 +1,15 @@
+function LiveBadge({ isPersistent }: { isPersistent?: boolean }) {
+  if (isPersistent) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#D5F3E8] text-[#1B6648] font-jakarta text-[9px] font-bold uppercase tracking-widest">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#2E8B67]" />
+        Live
+      </span>
+    );
+  }
+  return null;
+}
+
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -7,12 +19,20 @@ import {
   CheckCheck, XCircle, Activity,
   Building2, ExternalLink,
   Plus, FileText, CalendarDays, Search as SearchIcon,
+  Sparkles, Bot,
 } from 'lucide-react';
 import { useCampus } from '../context/CampusContext';
+import { useAuth } from '../context/AuthContext';
+import { normalizeRole } from '../utils/permissions';
 import CampusViewer3D from '../components/3d/CampusViewer3D';
 import ThreejsErrorBoundary from '../components/3d/ThreejsErrorBoundary';
+import { CampusPriorityQueueWidget } from '../components/dashboard/CampusPriorityQueueWidget';
+import StudentFacultyDashboardView from '../components/dashboard/roleViews/StudentFacultyDashboardView';
+import TechnicianDashboardView from '../components/dashboard/roleViews/TechnicianDashboardView';
+import DeptManagerDashboardView from '../components/dashboard/roleViews/DeptManagerDashboardView';
+import ProcurementDashboardView from '../components/dashboard/roleViews/ProcurementDashboardView';
+import SystemAdminDashboardView from '../components/dashboard/roleViews/SystemAdminDashboardView';
 import { AIInsight, ApprovalRequest, ActivityItem, WorkOrder, Incident } from '../types';
-import { authorizeApprovalAction } from '../utils/security';
 
 /* ─── Tiny helpers ─────────────────────────────────────────────── */
 const SEV_COLORS: Record<string, string> = {
@@ -61,11 +81,14 @@ interface KPIProps {
   iconBg: string;
   icon: React.ElementType;
   iconColor: string;
+  onClick?: () => void;
 }
-function KPICard({ label, value, trend, trendUp, bg, iconBg, icon: Icon, iconColor }: KPIProps) {
+function KPICard({ label, value, trend, trendUp, bg, iconBg, icon: Icon, iconColor, onClick, isPersistent }: KPIProps & { isPersistent?: boolean }) {
+  const isBackendPersistent = isPersistent;
   return (
     <div
-      className="relative flex flex-col justify-between p-5 rounded-card border border-[#E7E2DD] overflow-hidden transition-all duration-300 hover:shadow-pastel-md hover:-translate-y-0.5"
+      onClick={onClick}
+      className={`relative flex flex-col justify-between p-5 rounded-card border border-[#E7E2DD] overflow-hidden transition-all duration-300 hover:shadow-pastel-md hover:-translate-y-0.5 ${onClick ? 'cursor-pointer' : ''}`}
       style={{ background: bg }}
     >
       <div className="flex items-start justify-between mb-4">
@@ -75,7 +98,7 @@ function KPICard({ label, value, trend, trendUp, bg, iconBg, icon: Icon, iconCol
         >
           <Icon size={20} style={{ color: iconColor }} strokeWidth={2} />
         </div>
-        <DemoBadge />
+        <LiveBadge isPersistent={isBackendPersistent} />
       </div>
       <div>
         <p className="font-space font-bold text-[2.4rem] leading-none text-[#24283B] tracking-tight">{value}</p>
@@ -225,12 +248,10 @@ function ApprovalCard({ approval, onApprove, onReject }: {
   onApprove: () => void;
   onReject: () => void;
 }) {
-  const { user } = useCampus();
   const ub = URGENCY_BADGE[approval.urgency];
   const isApproved = approval.status === 'approved';
   const isRejected = approval.status === 'rejected';
   const isDone = isApproved || isRejected;
-  const authCheck = authorizeApprovalAction(user, approval, 'approve');
 
   return (
     <div className={`p-4 rounded-card border transition-all duration-300 ${isDone ? 'opacity-60 border-[#E7E2DD] bg-[#FAF7F1]' : 'border-[#E7E2DD] bg-white hover:shadow-pastel-sm'}`}>
@@ -247,32 +268,19 @@ function ApprovalCard({ approval, onApprove, onReject }: {
         <span className="font-space font-bold text-[13px] text-[#24283B]">{approval.estimatedCost}</span>
       </div>
       {!isDone && (
-        <div>
-          <div className="flex gap-2">
-            <button
-              onClick={onApprove}
-              disabled={!authCheck.allowed}
-              title={authCheck.reason || 'Approve'}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl font-jakarta font-semibold text-[12px] transition-colors ${
-                authCheck.allowed
-                  ? 'bg-[#D5F3E8] text-[#1B6648] hover:bg-[#B8ECD8]'
-                  : 'bg-[#F6F0E5] text-[#9CA1B4] cursor-not-allowed opacity-60'
-              }`}
-            >
-              <CheckCheck size={13} /> Approve
-            </button>
-            <button
-              onClick={onReject}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#F6F0E5] text-[#74788C] font-jakarta font-semibold text-[12px] hover:bg-[#EFE7D8] transition-colors"
-            >
-              <XCircle size={13} /> Decline
-            </button>
-          </div>
-          {!authCheck.allowed && (
-            <p className="font-jakarta text-[10px] text-[#BA3D6E] mt-1.5 text-center font-semibold">
-              {authCheck.code === 'SELF_APPROVAL_PROHIBITED' ? 'Self-requisition (cannot self-approve)' : 'Requires executive authority'}
-            </p>
-          )}
+        <div className="flex gap-2">
+          <button
+            onClick={onApprove}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#D5F3E8] text-[#1B6648] font-jakarta font-semibold text-[12px] hover:bg-[#B8ECD8] transition-colors"
+          >
+            <CheckCheck size={13} /> Approve
+          </button>
+          <button
+            onClick={onReject}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#F6F0E5] text-[#74788C] font-jakarta font-semibold text-[12px] hover:bg-[#EFE7D8] transition-colors"
+          >
+            <XCircle size={13} /> Decline
+          </button>
         </div>
       )}
     </div>
@@ -331,11 +339,14 @@ export default function DashboardPage() {
     recentActivities,
     approvals,
     buildings,
-    inventoryItems,
+    isBackendPersistent,
+    connectionError,
+    retryConnection,
     approveRequest,
     rejectRequest,
     setIsReportIncidentOpen,
     setIsCreateWorkOrderOpen,
+    setSelectedBuildingId,
   } = useCampus();
 
   const today = new Date().toLocaleDateString('en-IN', {
@@ -343,14 +354,56 @@ export default function DashboardPage() {
   });
 
   const openIncidentCount = incidents.filter((i) => i.status !== 'resolved' && i.status !== 'closed').length;
-  const stockAlertCount = inventoryItems.filter((i) => i.currentStock <= i.minThreshold).length;
-  const outOfStockCount = inventoryItems.filter((i) => i.status === 'out_of_stock').length;
+  const stockAlertCount = stockAlerts.length;
   const roomDisruptCount = roomDisruptions.filter((r) => r.status === 'active').length;
 
   const topPriorities: { item: WorkOrder | Incident; type: 'wo' | 'inc' }[] = [
     ...workOrders.filter((w) => w.priority === 'urgent' || w.priority === 'high').slice(0, 2).map((w) => ({ item: w as WorkOrder, type: 'wo' as const })),
     ...incidents.filter((i) => i.severity === 'critical' || i.severity === 'high').slice(0, 3).map((i) => ({ item: i as Incident, type: 'inc' as const })),
   ].slice(0, 5);
+
+  const { role } = useAuth();
+  const normRole = normalizeRole(role);
+
+  if (normRole === 'student_faculty') {
+    return (
+      <div className="px-6 py-7 min-h-full pb-12">
+        <StudentFacultyDashboardView />
+      </div>
+    );
+  }
+
+  if (normRole === 'technician') {
+    return (
+      <div className="px-6 py-7 min-h-full pb-12">
+        <TechnicianDashboardView />
+      </div>
+    );
+  }
+
+  if (normRole === 'department_manager') {
+    return (
+      <div className="px-6 py-7 min-h-full pb-12">
+        <DeptManagerDashboardView />
+      </div>
+    );
+  }
+
+  if (normRole === 'procurement_approver') {
+    return (
+      <div className="px-6 py-7 min-h-full pb-12">
+        <ProcurementDashboardView />
+      </div>
+    );
+  }
+
+  if (normRole === 'system_administrator') {
+    return (
+      <div className="px-6 py-7 min-h-full pb-12">
+        <SystemAdminDashboardView />
+      </div>
+    );
+  }
 
   return (
     <div className="px-6 py-7 space-y-7 min-h-full pb-12">
@@ -378,14 +431,59 @@ export default function DashboardPage() {
 
         <div className="relative z-10 text-right hidden md:block">
           <p className="font-space font-bold text-[13px] text-[#24283B] tracking-tight">{today}</p>
-          <p className="font-jakarta text-[12px] text-[#74788C] mt-1">MNMJEC Campus · Chennai, TN</p>
+          <p className="font-jakarta text-[12px] text-[#74788C] mt-1">CampusOps Digital Campus</p>
           <div className="flex items-center gap-2 justify-end mt-3">
             <span className="w-2 h-2 rounded-full bg-[#2E8B67] animate-pulse-subtle" />
             <span className="font-jakarta text-[11px] font-semibold text-[#2E8B67]">All Systems Monitoring Active</span>
           </div>
-          <DemoBadge />
+          <LiveBadge isPersistent={isBackendPersistent} />
         </div>
       </div>
+
+      {/* ── AI Copilot Command Strip ─────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 border border-indigo-200/80 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-sm flex-shrink-0">
+            <Sparkles size={16} className="animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-space font-bold text-xs sm:text-sm text-[#24283B]">CampusOps AI Copilot Active</span>
+              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700">7-Factor Priority Engine</span>
+            </div>
+            <p className="font-jakarta text-[11px] text-[#74788C]">
+              Ask complex queries across incidents, room disruptions, inventory, or technician assignments.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('campusops-toggle-copilot'))}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-jakarta text-xs font-bold transition-all shadow-sm cursor-pointer"
+          >
+            <Bot size={13} /> Ask Copilot <kbd className="font-mono text-[9px] bg-white/20 px-1 py-0.2 rounded ml-0.5">Ctrl+J</kbd>
+          </button>
+        </div>
+      </div>
+
+      {/* Connection Status Banner (if backend/Supabase error) */}
+      {connectionError && (
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-[#FFF2E7] border border-[#FFE4CF] shadow-sm">
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={20} className="text-[#C06B33] flex-shrink-0" />
+            <div>
+              <p className="font-space font-bold text-xs text-[#24283B]">Database Sync Status</p>
+              <p className="font-jakarta text-[11px] text-[#74788C]">{connectionError}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => retryConnection()}
+            className="px-3 py-1.5 rounded-xl bg-white text-[#C06B33] border border-[#FFE4CF] font-jakarta text-xs font-bold hover:bg-[#FAF7F1] transition shadow-sm cursor-pointer"
+          >
+            Retry Connection
+          </button>
+        </div>
+      )}
 
       {/* ── B. KPI Row ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -398,6 +496,7 @@ export default function DashboardPage() {
           iconBg="#F8DCE8"
           icon={AlertTriangle}
           iconColor="#BA3D6E"
+          onClick={() => navigate('/incidents')}
         />
         <KPICard
           label="Tasks On Time"
@@ -408,26 +507,29 @@ export default function DashboardPage() {
           iconBg="#D5F3E8"
           icon={CheckCircle2}
           iconColor="#2E8B67"
+          onClick={() => navigate('/maintenance')}
         />
         <KPICard
           label="Stock Alerts"
           value={stockAlertCount}
-          trend={`${outOfStockCount} critical items out of stock`}
+          trend="2 critical items low"
           trendUp={null}
           bg="#FFF2E7"
           iconBg="#FFE4CF"
           icon={Package}
           iconColor="#C06B33"
+          onClick={() => navigate('/inventory')}
         />
         <KPICard
           label="Room Disruptions"
           value={roomDisruptCount}
-          trend="Both currently active"
+          trend="Actionable relocations"
           trendUp={null}
           bg="#F2F4FF"
           iconBg="#E6E9FF"
           icon={DoorOpen}
           iconColor="#6878CA"
+          onClick={() => navigate('/bookings')}
         />
       </div>
 
@@ -441,25 +543,87 @@ export default function DashboardPage() {
                 <Building2 size={16} className="text-[#6878CA]" />
               </div>
               <div>
-                <p className="font-space font-bold text-[14px] text-[#24283B]">3D Campus</p>
-                <p className="font-jakarta text-[11px] text-[#74788C]">MNMJEC · {buildings.length} facilities mapped</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-space font-bold text-[14px] text-[#24283B]">3D Digital Twin</p>
+                  <span className="px-2 py-0.5 rounded-full bg-[#E6E9FF] text-[#4A5AA0] font-jakarta text-[10px] font-bold">
+                    {openIncidentCount} Active Issues
+                  </span>
+                </div>
+                <p className="font-jakarta text-[11px] text-[#74788C]">Interactive 3D model with live physical incident pinpoints</p>
               </div>
             </div>
             <button
               onClick={() => navigate('/campus-3d')}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[#6878CA] font-jakarta font-semibold text-[12px] hover:bg-[#E6E9FF] transition-colors"
             >
-              Full View <ExternalLink size={12} />
+              Full 3D View <ExternalLink size={12} />
             </button>
           </div>
 
           {/* 3D Viewer */}
           <div className="flex-1 relative" style={{ minHeight: '320px' }}>
             <ThreejsErrorBoundary>
-              <CampusViewer3D height="100%" />
+              <CampusViewer3D
+                height="100%"
+                onSelectBuilding={(bCode) => {
+                  setSelectedBuildingId(bCode);
+                  navigate('/campus-3d');
+                }}
+              />
             </ThreejsErrorBoundary>
-            <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-xl bg-white/80 backdrop-blur-sm border border-[#E7E2DD]">
-              <p className="font-jakarta text-[10px] text-[#74788C] font-semibold">Drag to orbit · Scroll to zoom</p>
+
+            {/* Quick Hotspot Buildings Pills */}
+            <div className="absolute top-3 left-3 right-3 flex items-center gap-2 overflow-x-auto pointer-events-auto pb-1 scrollbar-none z-10">
+              <span className="px-2.5 py-1 rounded-xl bg-slate-900/80 text-white font-jakarta text-[10px] font-bold whitespace-nowrap backdrop-blur-sm shadow-sm flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                Live Incidents:
+              </span>
+              {buildings
+                .filter((b) =>
+                  incidents.some(
+                    (i) =>
+                      (i.buildingId === b.id || i.building === b.id || i.location === b.id) &&
+                      i.status !== 'resolved' &&
+                      i.lifecycleStatus !== 'closed'
+                  )
+                )
+                .slice(0, 4)
+                .map((b) => {
+                  const bIncs = incidents.filter(
+                    (i) =>
+                      (i.buildingId === b.id || i.building === b.id || i.location === b.id) &&
+                      i.status !== 'resolved' &&
+                      i.lifecycleStatus !== 'closed'
+                  );
+                  const hasCrit = bIncs.some((i) => i.severity === 'critical');
+                  return (
+                    <button
+                      key={b.id}
+                      onClick={() => {
+                        setSelectedBuildingId(b.id);
+                        navigate('/campus-3d');
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[10px] font-jakarta font-bold border whitespace-nowrap shadow-sm backdrop-blur-md transition-all hover:scale-105 flex items-center gap-1.5 ${hasCrit
+                          ? 'bg-red-50/95 text-red-700 border-red-300'
+                          : 'bg-white/95 text-[#24283B] border-[#E7E2DD]'
+                        }`}
+                    >
+                      <span>{b.shortName}</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded-full text-[9px] ${hasCrit ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-800'
+                          }`}
+                      >
+                        {bIncs.length}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+
+            <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-xl bg-white/80 backdrop-blur-sm border border-[#E7E2DD] z-10">
+              <p className="font-jakarta text-[10px] text-[#74788C] font-semibold">
+                Click 3D building badge to drill down
+              </p>
             </div>
           </div>
 
@@ -469,30 +633,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Today's Priorities (2/5) */}
-        <div className="lg:col-span-2 flex flex-col bg-white rounded-card-lg border border-[#E7E2DD] overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[#E7E2DD]">
-            <div>
-              <p className="font-space font-bold text-[14px] text-[#24283B]">Today's Priorities</p>
-              <p className="font-jakarta text-[11px] text-[#74788C]">Ordered by urgency & SLA</p>
-            </div>
-            <span className="px-2 py-1 rounded-full bg-[#F8DCE8] text-[#BA3D6E] font-jakarta text-[11px] font-bold">
-              {topPriorities.length} items
-            </span>
-          </div>
-          <div className="flex-1 px-5 overflow-y-auto divide-y divide-[#F6F0E5]">
-            {topPriorities.map(({ item, type }) => (
-              <PriorityItem key={item.id} item={item} type={type} />
-            ))}
-          </div>
-          <div className="px-5 py-3 border-t border-[#E7E2DD]">
-            <button
-              onClick={() => navigate('/maintenance')}
-              className="w-full py-2 rounded-xl text-center font-jakarta font-semibold text-[13px] text-[#74788C] hover:bg-[#F6F0E5] transition-colors"
-            >
-              View all work orders →
-            </button>
-          </div>
+        {/* Intelligent Campus Priority Queue (2/5) */}
+        <div className="lg:col-span-2">
+          <CampusPriorityQueueWidget fallbackIncidents={incidents} />
         </div>
       </div>
 
@@ -508,7 +651,7 @@ export default function DashboardPage() {
               <p className="font-jakarta text-[11px] text-[#74788C]">Anomaly detection · Predictive maintenance · Conflict resolution</p>
             </div>
           </div>
-          <DemoBadge />
+          <LiveBadge isPersistent={isBackendPersistent} />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {aiInsights.map((insight) => (

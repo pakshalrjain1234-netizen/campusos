@@ -39,7 +39,6 @@ import {
   DEMO_PROCUREMENT_REQUESTS,
   DEMO_ROOMS,
   DEMO_ROOM_BOOKINGS,
-  DEMO_ROOM_DISRUPTIONS,
 } from '../../src/data/demoData';
 import { CAMPUS_BUILDINGS } from '../../src/data/buildingsData';
 
@@ -395,3 +394,57 @@ export class CampusDataService {
 
 export const campusDataService = new CampusDataService();
 export default campusDataService;
+
+export const DEMO_ROOM_DISRUPTIONS: RoomDisruption[] = [
+  {
+    id: 'disrupt-001',
+    roomCode: 'I101',
+    roomName: 'IT Computing Lab A',
+    buildingCode: 'ITB',
+    buildingName: 'Information Technology Center',
+    issue: 'HVAC Loop Pressure Failure — Chilled Water Temp Exceeded 26°C',
+    severity: 'critical' as const,
+    affectedBookings: ['book-001 (CS301 Practical Exam)'],
+    status: 'active',
+    alternativeRoomSuggestion: {
+      roomCode: 'A101',
+      roomName: 'Main Lecture Hall Alpha (ACB)',
+      capacity: 120,
+      equipment: ['Gigabit LAN', 'Dual HD Projectors', 'HVAC Automated'],
+      suitabilityScore: 96,
+    },
+    resolutionEta: '1:30 PM today',
+  },
+];
+
+export async function getCampusOperationalSnapshot(user?: UserProfile): Promise<any> {
+  const snapshot = await campusDataService.getSnapshot(user);
+  return {
+    incidents: snapshot.incidents,
+    workOrders: snapshot.workOrders,
+    inventory: snapshot.inventoryItems.map((i: any) => ({
+      ...i,
+      currentStock: i.currentStock,
+      minThreshold: i.minThreshold,
+      leadTimeDays: i.leadTimeDays || 3,
+    })),
+    approvals: snapshot.procurementRequests.map((p: any) => ({
+      id: p.id,
+      title: `${p.itemName} (${p.quantity} ${p.unit})`,
+      category: p.category,
+      requestType: 'procurement',
+      requesterId: p.requestedBy,
+      requesterName: p.requestedBy,
+      requesterRole: 'Staff',
+      department: 'Procurement',
+      estimatedCost: `₹${p.totalEstimatedCost}`,
+      urgency: p.urgency || 'normal',
+      status: p.status === 'pending_approval' ? 'pending' : p.status,
+      reason: p.reason,
+      submittedAt: p.createdAt,
+    })),
+    bookings: snapshot.bookings,
+    disruptions: DEMO_ROOM_DISRUPTIONS,
+    dataSource: snapshot.dataSource,
+  };
+}

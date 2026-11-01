@@ -1,75 +1,78 @@
-/**
- * CampusOps AI Copilot Backend Server
- * 
- * Standalone Express server providing:
- * - /api/copilot/query : Operational Copilot endpoint
- * - /api/copilot/status: Provider health and telemetry status
- * - /api/health        : Server health check
- */
-
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import copilotRouter from './routes/copilot';
-import { getSystemHealthCheck } from '../src/utils/observability';
+import { config } from './config';
+import { authenticateToken } from './middleware/auth';
+import { sanitizedLogger, secureHeaders, rateLimiter, requestTimeout } from './middleware/security';
+import { usersRouter } from './routes/users';
+import { incidentsRouter } from './routes/incidents';
+import { workOrdersRouter } from './routes/workOrders';
+import { approvalsRouter } from './routes/approvals';
+import { occupancyRouter } from './routes/occupancy';
+import { inventoryRouter } from './routes/inventory';
+import { bookingsRouter } from './routes/bookings';
+import { notificationsRouter } from './routes/notifications';
+import { copilotRouter } from './routes/copilot';
+import { AuthenticatedRequest } from './types';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
-// Middleware
+// Global Middlewares
+app.use(secureHeaders);
+app.use(sanitizedLogger);
+app.use(rateLimiter({ windowMs: 60000, maxRequests: 250 }));
+app.use(requestTimeout(20000));
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '1mb' }));
+// Incident evidence can include a compressed camera photo encoded in the request body.
+app.use(express.json({ limit: '2mb' }));
 
-// Routes
+// Health Check
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({
+    status: 'healthy',
+    service: 'CampusOps Backend API',
+    supabaseConnected: config.isConfigured,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Authenticated Identity Profile Endpoint
+app.get('/api/auth/me', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  res.json({ user: req.user });
+});
+
+// Mount Routes
+app.use('/api/users', usersRouter);
+app.use('/api/incidents', incidentsRouter);
+app.use('/api/work-orders', workOrdersRouter);
+app.use('/api/approvals', approvalsRouter);
+app.use('/api/occupancy', occupancyRouter);
+app.use('/api/inventory', inventoryRouter);
+app.use('/api/bookings', bookingsRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/ai', copilotRouter);
 app.use('/api/copilot', copilotRouter);
 
-// Health Endpoint
-app.get('/api/health', (req, res) => {
-  const health = getSystemHealthCheck(Boolean(process.env.SUPABASE_URL));
-  res.status(200).json(health);
+// 404 Handler
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ error: `Cannot ${req.method} ${req.path}`, code: 'NOT_FOUND' });
 });
 
-// Root ping
-app.get('/', (req, res) => {
-  res.json({
-    service: 'CampusOps Operational Copilot Service',
-    status: 'online',
-    version: '1.0.0',
-    endpoints: ['/api/copilot/query', '/api/copilot/status', '/api/health'],
-  });
-});
-
-// Safe 404 Handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: `Endpoint not found: ${req.method} ${req.url}`,
-    code: 'ROUTE_NOT_FOUND',
-  });
-});
-
-// Centralized Error Handler (prevents HTML leakage on malformed requests)
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err instanceof SyntaxError && 'body' in err) {
-    res.status(400).json({
-      success: false,
-      error: 'Malformed JSON payload.',
-      code: 'INVALID_JSON',
-    });
-    return;
-  }
+// Centralized Error Handler
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  console.error('Unhandled API Error:', err);
   res.status(500).json({
-    success: false,
-    error: 'Internal server error.',
-    code: 'SERVER_ERROR',
+    error: 'Internal Server Error',
+    message: err.message,
   });
 });
 
-// Start listener when executed directly
+// Start Server if run directly
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`[CampusOps Copilot] Server running on http://localhost:${PORT}`);
-    console.log(`[CampusOps Copilot] Copilot API ready at http://localhost:${PORT}/api/copilot/query`);
+  app.listen(config.port, () => {
+    console.log(`🚀 CampusOps Backend API running on port ${config.port}`);
+    console.log(`🔐 Supabase Connected: ${config.isConfigured ? 'YES' : 'NO (Demo Mode Active)'}`);
   });
 }
 
 export default app;
+

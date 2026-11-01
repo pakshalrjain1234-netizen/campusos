@@ -53,11 +53,11 @@ export default function SparePartsPage() {
       if (!q) return matchesDepot;
 
       const matchesBasic =
-        item.name.toLowerCase().includes(q) ||
+        (item.name || item.itemName || '').toLowerCase().includes(q) ||
         item.sku.toLowerCase().includes(q) ||
         item.category.toLowerCase().includes(q) ||
         item.location.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q);
+        (item.description || '').toLowerCase().includes(q);
 
       const matchesEquipment = (item.compatibleEquipment || []).some((eq) =>
         eq.toLowerCase().includes(q)
@@ -193,9 +193,9 @@ export default function SparePartsPage() {
                   </span>
                 </div>
 
-                <h3 className="font-space font-bold text-sm text-[#24283B] mb-1">{item.name}</h3>
+                <h3 className="font-space font-bold text-sm text-[#24283B] mb-1">{item.name || item.itemName}</h3>
                 <p className="font-jakarta text-xs text-[#74788C] line-clamp-2 leading-relaxed mb-3">
-                  {item.description}
+                  {item.description || ''}
                 </p>
 
                 {/* Storage Location */}

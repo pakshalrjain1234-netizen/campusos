@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Wrench } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Wrench, RefreshCw, Loader2 } from 'lucide-react';
 import { useCampus } from '../../context/CampusContext';
 import { WorkOrder } from '../../types';
 
@@ -16,7 +16,17 @@ const CATEGORIES = [
 ];
 
 export default function CreateWorkOrderModal() {
-  const { isCreateWorkOrderOpen, setIsCreateWorkOrderOpen, addWorkOrder, user, buildings, inventoryItems } = useCampus();
+  const {
+    isCreateWorkOrderOpen,
+    setIsCreateWorkOrderOpen,
+    addWorkOrder,
+    buildings,
+    inventoryItems,
+    technicians,
+    isLoadingTechnicians,
+    techniciansError,
+    refreshTechnicians,
+  } = useCampus();
 
   const [form, setForm] = useState({
     title: '',
@@ -25,11 +35,18 @@ export default function CreateWorkOrderModal() {
     location: '',
     priority: 'medium' as WorkOrder['priority'],
     assignedEngineer: '',
+    assignedEngineerId: '',
     dueDate: '',
     partsRequired: [] as string[],
     partInput: '',
   });
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isCreateWorkOrderOpen && technicians.length === 0 && !isLoadingTechnicians) {
+      void refreshTechnicians();
+    }
+  }, [isCreateWorkOrderOpen]);
 
   if (!isCreateWorkOrderOpen) return null;
 
@@ -56,8 +73,9 @@ export default function CreateWorkOrderModal() {
         buildingName: building?.name ?? form.buildingId,
         location: form.location,
         priority: form.priority,
-        status: form.assignedEngineer ? 'in_progress' : 'unassigned',
+        status: form.assignedEngineerId ? 'in_progress' : 'unassigned',
         assignedEngineer: form.assignedEngineer || 'Unassigned',
+        assignedEngineerId: form.assignedEngineerId || undefined,
         engineerAvatar: '',
         dueDate: form.dueDate || 'TBD',
         slaRemaining: '8h',
@@ -66,7 +84,18 @@ export default function CreateWorkOrderModal() {
       });
       setSubmitting(false);
       setIsCreateWorkOrderOpen(false);
-      setForm({ title: '', category: 'General Civil Works', buildingId: '', location: '', priority: 'medium', assignedEngineer: '', dueDate: '', partsRequired: [], partInput: '' });
+      setForm({
+        title: '',
+        category: 'General Civil Works',
+        buildingId: '',
+        location: '',
+        priority: 'medium',
+        assignedEngineer: '',
+        assignedEngineerId: '',
+        dueDate: '',
+        partsRequired: [],
+        partInput: '',
+      });
     }, 600);
   };
 
@@ -154,13 +183,54 @@ export default function CreateWorkOrderModal() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block font-jakarta text-[12px] font-semibold text-[#24283B] mb-1.5">Assigned Engineer</label>
-              <input
-                value={form.assignedEngineer}
-                onChange={(e) => setForm({ ...form, assignedEngineer: e.target.value })}
-                placeholder="Name or leave blank"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E2DD] font-jakarta text-sm text-[#24283B] placeholder:text-[#74788C] focus:outline-none focus:border-[#C06B33] transition-all"
-              />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block font-jakarta text-[12px] font-semibold text-[#24283B]">
+                  Allocate Technician
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void refreshTechnicians()}
+                  className="text-[10px] text-[#74788C] hover:text-[#C06B33] flex items-center gap-0.5"
+                  title="Refresh technicians from database"
+                >
+                  <RefreshCw size={10} className={isLoadingTechnicians ? 'animate-spin' : ''} />
+                </button>
+              </div>
+
+              {isLoadingTechnicians ? (
+                <div className="w-full px-3 py-2.5 rounded-xl border border-[#E7E2DD] bg-[#FAF7F1] flex items-center gap-1.5 text-xs text-[#74788C]">
+                  <Loader2 size={13} className="animate-spin text-[#C06B33]" />
+                  <span>Loading technicians...</span>
+                </div>
+              ) : technicians.length === 0 ? (
+                <select
+                  disabled
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#F2B5CD] bg-[#F8DCE8] text-xs font-jakarta text-[#BA3D6E]"
+                >
+                  <option>No technicians registered</option>
+                </select>
+              ) : (
+                <select
+                  value={form.assignedEngineerId}
+                  onChange={(e) => {
+                    const techId = e.target.value;
+                    const tech = technicians.find((t) => t.id === techId);
+                    setForm({
+                      ...form,
+                      assignedEngineerId: techId,
+                      assignedEngineer: tech ? (tech.fullName || tech.name) : '',
+                    });
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#E7E2DD] font-jakarta text-xs text-[#24283B] focus:outline-none focus:border-[#C06B33] bg-white"
+                >
+                  <option value="">Unassigned (Queue)</option>
+                  {technicians.map((tech) => (
+                    <option key={tech.id} value={tech.id}>
+                      {tech.fullName || tech.name} ({tech.department ? tech.department.slice(0, 15) : 'Tech'})
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div>
               <label className="block font-jakarta text-[12px] font-semibold text-[#24283B] mb-1.5">Due Date</label>

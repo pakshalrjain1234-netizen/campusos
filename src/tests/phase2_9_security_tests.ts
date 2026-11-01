@@ -370,8 +370,8 @@ assert(
 
 // Double-booking conflict check
 const conflictCheck = api.checkBookingConflict(
-  sampleBooking.roomId,
-  sampleBooking.date,
+  sampleBooking.roomId!,
+  sampleBooking.date!,
   '11:00',
   '13:00',
   [sampleBooking]
@@ -379,8 +379,8 @@ const conflictCheck = api.checkBookingConflict(
 assert(conflictCheck.hasConflict, 'Double-booking conflict detected on overlapping time window');
 
 const nonConflictCheck = api.checkBookingConflict(
-  sampleBooking.roomId,
-  sampleBooking.date,
+  sampleBooking.roomId!,
+  sampleBooking.date!,
   '12:00',
   '14:00',
   [sampleBooking]

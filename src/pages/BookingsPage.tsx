@@ -45,6 +45,10 @@ const STATUS_BADGES: Record<BookingStatus, { bg: string; text: string; label: st
   reallocated: { bg: '#F2F4FF', text: '#6878CA', label: 'Reallocated' },
   rejected: { bg: '#F8DCE8', text: '#BA3D6E', label: 'Declined' },
   cancelled: { bg: '#F6F0E5', text: '#74788C', label: 'Cancelled' },
+  active: { bg: '#D5F3E8', text: '#28775A', label: 'Active' },
+  completed: { bg: '#E6E9FF', text: '#4B4F91', label: 'Completed' },
+  confirmed: { bg: '#D5F3E8', text: '#28775A', label: 'Confirmed' },
+  relocated: { bg: '#FFE4CF', text: '#A65C2E', label: 'Relocated' },
 };
 
 export default function BookingsPage() {
@@ -110,8 +114,8 @@ export default function BookingsPage() {
       if (selectedBuilding !== 'all' && b.buildingId !== selectedBuilding) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchPurpose = b.purpose.toLowerCase().includes(q);
-        const matchNumber = b.bookingNumber.toLowerCase().includes(q);
+        const matchPurpose = (b.purpose || b.title || "").toLowerCase().includes(q);
+        const matchNumber = (b.bookingNumber || b.bookingCode || "").toLowerCase().includes(q);
         const matchRoom = b.roomName.toLowerCase().includes(q);
         const matchBooker = b.bookedBy.toLowerCase().includes(q);
         if (!matchPurpose && !matchNumber && !matchRoom && !matchBooker) return false;
